@@ -1,0 +1,15 @@
+# Ignore
+.idea/
+.vscode/
+*.log
+
+# misc
+.DS_Store
+
+AGENTS.md
+
+examples/
+plugins/
+raw/
+scripts/
+docs/todo.md
