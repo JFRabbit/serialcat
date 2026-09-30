@@ -89,17 +89,14 @@ func escapeCmd(s string) string {
 // sendCmd 是串口下行命令子命令，与 run（读日志）分离。
 var sendCmd = &cobra.Command{
 	Use:   "send",
-	Short: "向串口下发命令（远程经 agent 或本地直连）",
-	Long: "向串口下发一条命令。\n" +
-		"前提：要看命令效果，必须有一个“串口持有者”在跑——本机 `run --enable-write`（本地抓日志）\n" +
-		"或远程 `agent serve --enable-write`；此时串口被该持有者独占，命令应经其下发：\n" +
-		"· 远程写：--url http://<host>:7100 --cmd \"AT+OPEN\"（结合 agent 时可能需要 --token）\n" +
-		"· 本地写（盲发）：--port COM5 --baud 115200 --cmd \"AT+OPEN\"——仅当不靠 run/agent 的机器上\n" +
-		"  裸发一条命令用，发完看不到回显；省略 --port 时自动探测唯一串口\n" +
-		"若本地写报 serial port busy 表示串口已被别的程序（如 run/agent/SecureCRT）占用，\n" +
-		"请改用上面带 --url 的方式，或先停掉占用者。\n" +
-		"命令中可用 \\r \\n \\t 表示转义的回车/换行/制表符。默认自动补单个回车(\\r)触发设备执行,\n" +
-		"需要精确发送字节时用 --raw 关闭。失败即报错并置非零退出码。",
+	Short: "向串口下发一条命令",
+	Long: "向串口下发一条命令（默认发本机 run --enable-write 写通道）。\n" +
+		"  示例：\n" +
+		"    logdiag send \"ls -al\"                        # 直接跟命令，空格自动拼成一个命令串\n" +
+		"    logdiag send \"AT+OPEN\\r\\n\"                  # 支持 \\r \\n \\t 转义\n" +
+		"    logdiag send --cmd \"echo hi\" arg1 arg2        # --cmd 与位置参数可同时用,结果为 \"echo hi arg1 arg2\"\n" +
+		"    logdiag send --port COM5 \"ls\"                  # 裸发:不经 run/agent,直接写本机串口(盲发,无回显)\n" +
+		"  说明：默认自动补一个回车(\\r)触发设备执行；需精确字节时用 --raw。失败即报错并置非零退出码。",
 	Args: cobra.ArbitraryArgs,
 	RunE: runSend,
 }
