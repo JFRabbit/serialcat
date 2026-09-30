@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"logdiag/internal/agent"
+	"logdiag/pkg/serial"
 )
 
 // agentCmd 是 Windows 串口代理子命令（在带串口的 Windows 机器上运行）。
@@ -30,9 +31,13 @@ var agentServeCmd = &cobra.Command{
 }
 
 var (
-	serveListen string
-	servePort   string
-	serveBaud   int
+	serveListen      string
+	servePort        string
+	serveBaud        int
+	serveEnableWrite bool
+	serveToken       string
+	serveNoLocalLog  bool
+	serveOutDir      string
 )
 
 // agentProbeCmd 探测串口可用性与波特率。
@@ -45,7 +50,7 @@ var agentProbeCmd = &cobra.Command{
 }
 
 func runAgentServe(cmd *cobra.Command, _ []string) error {
-	drv, err := agent.NewDriver()
+	drv, err := serial.NewDriver()
 	if err != nil {
 		return err
 	}
@@ -61,7 +66,20 @@ func runAgentServe(cmd *cobra.Command, _ []string) error {
 		port = chosen
 	}
 
-	srv, err := agent.NewServer(serveListen, port, serveBaud, drv)
+	// --enable-write：token 取自 --token（固定/不变）或每次随生成的随机值（控制台输出，不落文件）。
+	opts := agent.Options{}
+	if serveEnableWrite {
+		opts.WriteEnabled = true
+		if serveToken != "" {
+			opts.WriteToken = serveToken
+		} else {
+			opts.WriteToken = agent.RandomToken(16)
+		}
+	}
+	opts.NoLocalLog = serveNoLocalLog
+	opts.OutDir = serveOutDir
+
+	srv, err := agent.NewServer(serveListen, port, serveBaud, drv, opts)
 	if err != nil {
 		return err
 	}
@@ -78,7 +96,51 @@ func runAgentServe(cmd *cobra.Command, _ []string) error {
 
 	srv.SetListener(ln)
 	srv.SetAddr(addr)
+	printReachable(addr, &opts)
 	return srv.Start(cmd.Context())
+}
+
+// printReachable 打印对端可连的本机地址清单（多网卡全列）。
+// 监听宿主为空/"0.0.0.0"/all 时列出全部非回环 IP；绑定具体网卡则只列该 IP。
+func printReachable(addr string, opts *agent.Options) {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return // 解析失败则跳过地址提示，不阻塞启动
+	}
+	fmt.Printf("agent 串口代理已启动:\n")
+	host, _, _ := net.SplitHostPort(addr)
+	switch host {
+	case "", "0.0.0.0", "::", "all":
+		for _, ip := range nonLoopbackIPs() {
+			fmt.Printf("  地址: http://%s:%s\n", ip, port)
+		}
+	default:
+		fmt.Printf("  地址: http://%s:%s\n", host, port)
+	}
+	if opts.WriteEnabled {
+		fmt.Printf("  写接口已开启，token: %s\n", opts.WriteToken)
+	}
+}
+
+// nonLoopbackIPs 枚举本机全部非回环 IP（IPv4 优先，IPv6 一并返回）。
+func nonLoopbackIPs() []string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, a := range addrs {
+		ipn, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip := ipn.IP
+		if ip.IsLoopback() || ip.IsUnspecified() {
+			continue
+		}
+		out = append(out, ip.String())
+	}
+	return out
 }
 
 // listenAutoIncrement 尝试绑定 baseAddr；若目标端口被占用，依次递增端口号直到成功。
@@ -113,7 +175,7 @@ func listenAutoIncrement(baseAddr string, maxTries ...int) (net.Listener, string
 
 // selectPort 自动选择串口：枚举可用端口并决定如何连接。
 // 返回所选端口名。需交互（多端口）时从 stdin 读取用户选择。
-func selectPort(drv agent.Driver) (string, error) {
+func selectPort(drv serial.Driver) (string, error) {
 	ports, err := drv.ListPorts()
 	if err != nil {
 		return "", err
@@ -152,7 +214,7 @@ func selectPort(drv agent.Driver) (string, error) {
 }
 
 func runAgentProbe(cmd *cobra.Command, args []string) error {
-	drv, err := agent.NewDriver()
+	drv, err := serial.NewDriver()
 	if err != nil {
 		return err
 	}
@@ -201,4 +263,8 @@ func init() {
 	fs.StringVar(&serveListen, "listen", ":9100", "HTTP 监听地址")
 	fs.StringVar(&servePort, "port", "", "串口名，如 COM5")
 	fs.IntVar(&serveBaud, "baud", 115200, "波特率")
+	fs.BoolVar(&serveEnableWrite, "enable-write", false, "开启下行写接口 /api/write（默认关；未指定 --token 时每次生成随机 token 并控制台输出）")
+	fs.StringVar(&serveToken, "token", "", "固定写 token（配合 --enable-write；不设则每次随生成随机值，不落文件）")
+	fs.BoolVar(&serveNoLocalLog, "no-local-log", false, "关闭本地兜底落盘（默认开启）")
+	fs.StringVar(&serveOutDir, "out-dir", "", "本地兜底日志输出目录，默认当前路径")
 }

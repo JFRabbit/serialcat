@@ -29,14 +29,20 @@ type SerialRemote struct {
 
 var _ dag.SourceNode = (*SerialRemote)(nil)
 
-// NewSerialRemote 构造远端串口来源节点。baseURL 形如 http://192.168.1.10:9100 或带尾斜杠。
+// NewSerialRemote 构造远端串口来源节点。baseURL 形如 http://192.168.1.10:9100 或带尾斜杠;
+// 缺协议(如 192.168.1.10:9100)时自动补 http://。
 func NewSerialRemote(id, baseURL string, buf int) *SerialRemote {
 	if buf <= 0 {
 		buf = 128
 	}
+	base := strings.TrimSpace(baseURL)
+	base = strings.TrimRight(base, "/")
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "http://" + base
+	}
 	return &SerialRemote{
 		id:     id,
-		base:   strings.TrimRight(baseURL, "/"),
+		base:   base,
 		out:    make(chan []dag.Item, buf),
 		client: &http.Client{Timeout: 0}, // 流式长连接，不设总超时
 	}

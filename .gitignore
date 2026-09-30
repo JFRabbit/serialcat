@@ -13,3 +13,7 @@ plugins/
 raw/
 scripts/
 docs/todo.md
+tmp/
+.tmp/
+dist/
+build/

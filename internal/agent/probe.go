@@ -4,6 +4,8 @@ import (
 	"context"
 	"sort"
 	"time"
+
+	"logdiag/pkg/serial"
 )
 
 // 探测候选波特率：覆盖常见固件默认档位。
@@ -27,7 +29,7 @@ type ProbeResult struct {
 
 // Probe 对指定端口扫常见波特率，返回按推荐度排序的结果。
 // 启发式：固件日志多含可打印 ASCII，可打印字符占比越高、出现换行越多，越可能是正确波特率。
-func Probe(drv Driver, port string) ([]ProbeResult, error) {
+func Probe(drv serial.Driver, port string) ([]ProbeResult, error) {
 	results := make([]ProbeResult, 0, len(probeBaunds))
 	for _, baud := range probeBaunds {
 		results = append(results, probeOne(drv, port, baud))
@@ -47,7 +49,7 @@ func score(r ProbeResult) float64 {
 }
 
 // probeOne 在指定波特率下采样一小段窗口并打分。
-func probeOne(drv Driver, port string, baud int) ProbeResult {
+func probeOne(drv serial.Driver, port string, baud int) ProbeResult {
 	res := ProbeResult{Baud: baud}
 	p, err := drv.Open(port, baud)
 	if err != nil {

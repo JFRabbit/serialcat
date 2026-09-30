@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"logdiag/internal/console"
 	"logdiag/internal/constant"
 	"logdiag/internal/logger"
 )
@@ -49,6 +50,9 @@ func Execute() {
 }
 
 func init() {
+	// Windows 下启动即关闭控制台快速编辑模式,避免选中文本时挂起高频输出。
+	console.DisableQuickEdit()
+
 	rootCmd.PersistentFlags().StringVarP(&configFile, constant.FlagConfig, "f", constant.DefaultConfigFile, "DAG 配置文件路径")
 	rootCmd.PersistentFlags().BoolVar(&debug, constant.FlagDebug, false, "启用调试日志")
 	rootCmd.PersistentFlags().BoolVar(&insecure, "insecure", false, "跳过 TLS 证书校验（自签名更新源）")

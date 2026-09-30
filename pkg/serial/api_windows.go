@@ -1,6 +1,6 @@
 //go:build windows
 
-package agent
+package serial
 
 import (
 	"fmt"
