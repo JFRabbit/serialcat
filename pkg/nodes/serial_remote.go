@@ -29,8 +29,8 @@ type SerialRemote struct {
 
 var _ dag.SourceNode = (*SerialRemote)(nil)
 
-// NewSerialRemote 构造远端串口来源节点。baseURL 形如 http://192.168.1.10:9100 或带尾斜杠;
-// 缺协议(如 192.168.1.10:9100)时自动补 http://。
+// NewSerialRemote 构造远端串口来源节点。baseURL 形如 http://192.168.1.10:7100 或带尾斜杠;
+// 缺协议(如 192.168.1.10:7100)时自动补 http://。
 func NewSerialRemote(id, baseURL string, buf int) *SerialRemote {
 	if buf <= 0 {
 		buf = 128

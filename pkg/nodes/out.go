@@ -127,11 +127,12 @@ func (n *FileSink) expandPath() string {
 	return strings.ReplaceAll(n.pathTmpl, "{ts}", ts)
 }
 
-// Run 逐行写入。in 关闭即结束，最后 flush。
+// Run 逐行写入并每行 flush（实时落盘，防止数据滞留在缓冲区导致中途丢失）。
+// 若目标文件在运行期被外部删除/移走，自动重建同名文件继续追加，保证不丢数据。
 func (n *FileSink) Run(ctx context.Context, in <-chan []dag.Item) error {
 	path := n.expandPath()
 	// 自动创建父目录，兼容目标路径不存在的场景。
-	if dir := filepath.Dir(path); dir != "." {
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("mkdir %s: %w", dir, err)
 		}
@@ -140,8 +141,10 @@ func (n *FileSink) Run(ctx context.Context, in <-chan []dag.Item) error {
 	if err != nil {
 		return fmt.Errorf("create %s: %w", path, err)
 	}
-	defer f.Close()
 	w := bufio.NewWriter(f)
+	curPath := path
+	defer func() { _ = w.Flush(); _ = f.Close() }()
+
 	for batch := range in {
 		for _, it := range batch {
 			select {
@@ -149,13 +152,44 @@ func (n *FileSink) Run(ctx context.Context, in <-chan []dag.Item) error {
 				return ctx.Err()
 			default:
 			}
+			// 文件被外部删除/移走时，重建同名文件继续追加（与 agent 兜底一致）。
+			if _, err := os.Stat(curPath); err != nil {
+				if nf, npath, e := recreateSinkFile(curPath); e == nil {
+					_ = w.Flush()
+					_ = f.Close()
+					f, w, curPath = nf, bufio.NewWriter(nf), npath
+				} else {
+					return fmt.Errorf("重建落盘文件 %s: %w", curPath, e)
+				}
+			}
 			if _, err := w.WriteString(it.Text + "\n"); err != nil {
+				return err
+			}
+			if err := w.Flush(); err != nil {
 				return err
 			}
 		}
 	}
-	if err := w.Flush(); err != nil {
-		return err
+	return nil
+}
+
+// recreateSinkFile 在落盘文件被删除后重建：优先同名；同名创建失败（如被目录占用）则自动递增后缀。
+func recreateSinkFile(name string) (*os.File, string, error) {
+	if dir := filepath.Dir(name); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, "", fmt.Errorf("重建目录 %s: %w", dir, err)
+		}
 	}
-	return f.Close()
+	if f, err := os.Create(name); err == nil {
+		return f, name, nil
+	}
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	for i := 1; i <= 1000; i++ {
+		alt := fmt.Sprintf("%s-%d%s", base, i, ext)
+		if f, err := os.Create(alt); err == nil {
+			return f, alt, nil
+		}
+	}
+	return nil, "", fmt.Errorf("无法重建落盘文件（同名及 1000 个后缀均失败）: %s", name)
 }

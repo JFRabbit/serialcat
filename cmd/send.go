@@ -91,11 +91,16 @@ var sendCmd = &cobra.Command{
 	Use:   "send",
 	Short: "向串口下发命令（远程经 agent 或本地直连）",
 	Long: "向串口下发一条命令。\n" +
-		"· 远程写：--url http://<agent>:9100 --cmd \"AT+OPEN\" [--token <t>]\n" +
-		"· 本地写：--port COM5 --baud 115200 --cmd \"AT+OPEN\"（仅 Windows，无需开关/鉴权）\n" +
+		"前提：要看命令效果，必须有一个“串口持有者”在跑——本机 `run --enable-write`（本地抓日志）\n" +
+		"或远程 `agent serve --enable-write`；此时串口被该持有者独占，命令应经其下发：\n" +
+		"· 远程写：--url http://<host>:7100 --cmd \"AT+OPEN\"（结合 agent 时可能需要 --token）\n" +
+		"· 本地写（盲发）：--port COM5 --baud 115200 --cmd \"AT+OPEN\"——仅当不靠 run/agent 的机器上\n" +
+		"  裸发一条命令用，发完看不到回显；省略 --port 时自动探测唯一串口\n" +
+		"若本地写报 serial port busy 表示串口已被别的程序（如 run/agent/SecureCRT）占用，\n" +
+		"请改用上面带 --url 的方式，或先停掉占用者。\n" +
 		"命令中可用 \\r \\n \\t 表示转义的回车/换行/制表符。默认自动补单个回车(\\r)触发设备执行,\n" +
-		"等同 SecureCRT 按 Enter;需要精确发送字节时用 --raw 关闭。失败即报错并置非零退出码。",
-	Args: cobra.NoArgs,
+		"需要精确发送字节时用 --raw 关闭。失败即报错并置非零退出码。",
+	Args: cobra.ArbitraryArgs,
 	RunE: runSend,
 }
 
@@ -108,16 +113,32 @@ var (
 	sendRawNoNL bool
 )
 
-func runSend(_ *cobra.Command, _ []string) error {
-	if sendCmdS == "" {
-		return fmt.Errorf("缺少 --cmd")
+func runSend(_ *cobra.Command, args []string) error {
+	// 命令来源：--cmd 优先；否则用位置参数拼接(直接 send 具体命令)。
+	cmd := sendCmdS
+	if cmd == "" {
+		cmd = strings.Join(args, " ")
 	}
-	cfg := sendConfig{URL: sendURL, Port: sendPort, Baud: sendBaud, Cmd: sendCmdS, Token: sendToken}
+	if cmd == "" {
+		return fmt.Errorf("缺少要下发的命令（用 --cmd 或直接跟在命令后）")
+	}
+	cfg := sendConfig{URL: sendURL, Port: sendPort, Baud: sendBaud, Cmd: cmd, Token: sendToken}
 
 	var w sendWriter
-	switch {
-	case cfg.URL != "":
-		// 兼容带/不带 http(s):// 写法:缺协议时默认补 http://。
+	if cfg.Port != "" {
+		// 本地直连（盲发）：显式 --port 才走本机串口，绕开 run/agent 持有者。
+		drv, err := serial.NewDriver()
+		if err != nil {
+			return err
+		}
+		baud := cfg.Baud
+		if baud <= 0 {
+			baud = 115200
+		}
+		w = &localWriter{drv: drv, port: cfg.Port, baud: baud}
+	} else {
+		// 经 HTTP 下发：默认发本机 run --enable-write 的写通道(127.0.0.1:7100)。
+		// 也可 --url 指向远程 agent。兼容带/不带 http(s):// 写法:缺协议时默认补 http://。
 		base := strings.TrimSpace(cfg.URL)
 		base = strings.TrimRight(base, "/")
 		if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
@@ -128,14 +149,6 @@ func runSend(_ *cobra.Command, _ []string) error {
 			token: cfg.Token,
 			cli:   &http.Client{Timeout: 5 * time.Second},
 		}
-	case cfg.Port != "":
-		drv, err := serial.NewDriver()
-		if err != nil {
-			return err
-		}
-		w = &localWriter{drv: drv, port: cfg.Port, baud: cfg.Baud}
-	default:
-		return fmt.Errorf("必须指定 --url（远程写）或 --port（本地写）")
 	}
 
 	data := []byte(escapeCmd(cfg.Cmd))
@@ -157,7 +170,7 @@ func runSend(_ *cobra.Command, _ []string) error {
 func init() {
 	rootCmd.AddCommand(sendCmd)
 	fs := sendCmd.Flags()
-	fs.StringVar(&sendURL, "url", "", "agent 地址，如 http://192.168.1.10:9100（远程写）")
+	fs.StringVar(&sendURL, "url", "127.0.0.1:7100", "写通道地址（默认本机 run --enable-write），如 http://192.168.1.10:7100")
 	fs.StringVar(&sendPort, "port", "", "本机串口名，如 COM5（本地写，仅 Windows）")
 	fs.IntVar(&sendBaud, "baud", 115200, "本地写波特率")
 	fs.StringVar(&sendCmdS, "cmd", "", "要下发的命令（支持 \\r \\n \\t 转义）")

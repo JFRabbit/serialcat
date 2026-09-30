@@ -2,9 +2,11 @@ package nodes
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"logdiag/pkg/config"
 	"logdiag/pkg/dag"
+	"logdiag/pkg/serial"
 )
 
 // Build 根据 Config 构造 dag.Graph。
@@ -36,6 +38,8 @@ func buildNode(nc *config.NodeConfig) (dag.Node, error) {
 		return fileSource(&nc.Conf, nc.ID)
 	case "source:serial-remote":
 		return serialRemote(&nc.Conf, nc.ID)
+	case "source:serial":
+		return localSerial(&nc.Conf, nc.ID)
 	case "filter:grep":
 		return grepNode(&nc.Conf, nc.ID)
 	case "process:script":
@@ -82,9 +86,16 @@ func grepNode(c *map[string]any, id string) (dag.Node, error) {
 }
 
 func fileSink(c *map[string]any, id string) (dag.Node, error) {
-	p, err := strConf(*c, "path")
-	if err != nil {
-		return nil, err
+	// path 可省略：缺省落到运行目录下 logs/logdiag-sink-{ts}.log，免配置。
+	p := filepath.Join("logs", "logdiag-sink-{ts}.log")
+	if v, ok := (*c)["path"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("配置项 path 应为字符串")
+		}
+		if s != "" {
+			p = s
+		}
 	}
 	return NewFileSink(id, p), nil
 }
@@ -95,6 +106,47 @@ func serialRemote(c *map[string]any, id string) (dag.Node, error) {
 		return nil, err
 	}
 	return NewSerialRemote(id, u, 0), nil
+}
+
+func localSerial(c *map[string]any, id string) (dag.Node, error) {
+	var baud int = 115200
+	if v, ok := (*c)["baud"]; ok {
+		b, ok := v.(int)
+		if !ok {
+			return nil, fmt.Errorf("配置项 baud 应为整数")
+		}
+		baud = b
+	}
+
+	// port 可省略：缺省时自动探测并选择串口。多个可选串口时无法决定，明确报错提示，避免误连。
+	port := ""
+	if v, ok := (*c)["port"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("配置项 port 应为字符串")
+		}
+		port = s
+	}
+	if port == "" {
+		drv, err := serial.NewDriver()
+		if err != nil {
+			return nil, err
+		}
+		ports, err := drv.ListPorts()
+		if err != nil {
+			return nil, fmt.Errorf("自动探测串口失败: %w", err)
+		}
+		switch len(ports) {
+		case 0:
+			return nil, fmt.Errorf("未探测到可用串口，请在配置中通过 port 明确指定")
+		case 1:
+			port = ports[0]
+		default:
+			return nil, fmt.Errorf("探测到多个可用串口 %v，无法自动选择，请在配置中通过 port 明确指定", ports)
+		}
+	}
+
+	return NewLocalSerial(id, port, baud, 0), nil
 }
 
 // processNode 构造 process:script 节点。command 必填，args 可省略。

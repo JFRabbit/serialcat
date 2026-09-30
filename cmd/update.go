@@ -32,6 +32,9 @@ var newUpdaterSource updaterSourceFactory = func(baseURL string, insecure bool) 
 // getExecutablePath 返回当前可执行文件路径, 便于测试注入。
 var getExecutablePath = selfPath
 
+// insecure 跳过 TLS 证书校验（自签名证书更新源场景）。仅 update 命令使用的局部 flag。
+var insecure bool
+
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "检查并更新到最新版本",
@@ -54,6 +57,7 @@ func init() {
 	updateCmd.Flags().StringVar(&updateSourceURL, "source-url", "", "更新源地址前缀 (http(s)://ip:port/bucket)")
 	updateCmd.Flags().Bool("check", false, "仅检查是否有新版本, 不执行更新")
 	updateCmd.Flags().Bool("force", false, "强制更新, 即使当前已是最新版本")
+	updateCmd.Flags().BoolVar(&insecure, "insecure", false, "跳过 TLS 证书校验（自签名更新源）")
 }
 
 func runUpdate(checkOnly, force, insecure bool) error {

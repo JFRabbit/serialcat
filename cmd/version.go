@@ -25,6 +25,6 @@ var versionCmd = &cobra.Command{
 }
 
 func init() {
-	versionCmd.Flags().BoolVar(&short, constant.FlagShort, false, "只出版本号")
+	versionCmd.Flags().BoolVar(&short, constant.FlagShort, false, "仅返回版本号")
 	rootCmd.AddCommand(versionCmd)
 }

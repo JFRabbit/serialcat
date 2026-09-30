@@ -17,17 +17,22 @@ import (
 // agentCmd 是 Windows 串口代理子命令（在带串口的 Windows 机器上运行）。
 var agentCmd = &cobra.Command{
 	Use:   "agent",
-	Short: "Windows 串口代理（在带串口的 Windows 机器上运行）",
+	Short: "串口代理（目前仅 Windows 支持，其它系统是否支持待定）",
 	Args:  cobra.NoArgs,
 }
 
 // agentServeCmd 启动串口 HTTP 代理服务。
 var agentServeCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "启动串口 HTTP 代理服务",
-	Long:  "打开串口并暴露 /api/ports /api/stream /api/write /api/probe 接口，供远端 logdiag 拉流。",
-	Args:  cobra.NoArgs,
-	RunE:  runAgentServe,
+	Short: "启动串口代理服务",
+	Long: "在插着串口这台机器上运行：自动连接串口（未指定时自动选择），并把串口数据通过网络提供给" +
+		"其它电脑的 logdiag 查看。\n" +
+		"启动后会打印本机可访问地址；配合 --enable-write 可在对端下发命令。\n" +
+		"参数：--listen HTTP 监听地址(默认 :7100)；--port 串口名(如 COM5，不填自动选)；" +
+		"--baud 波特率(默认 115200)；--enable-write 开启下行写；--token 固定写令牌(不填则随机)；" +
+		"--no-local-log 关闭本地日志落盘；--out-dir 本地日志落盘目录（默认运行目录下 logs/）。",
+	Args: cobra.NoArgs,
+	RunE: runAgentServe,
 }
 
 var (
@@ -43,10 +48,11 @@ var (
 // agentProbeCmd 探测串口可用性与波特率。
 var agentProbeCmd = &cobra.Command{
 	Use:   "probe [port]",
-	Short: "探测串口可用性并推荐波特率",
-	Long:  "不带参数时枚举所有 COM；带端口时对常见波特率采样打分，推荐最可能正确的档位。",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runAgentProbe,
+	Short: "查看或探测串口",
+	Long: "不带参数时列出本机所有串口；带一个串口名时测试它，并给出最推荐的波特率。\n" +
+		"参数：<port> 串口名（如 COM5），可省略。",
+	Args: cobra.MaximumNArgs(1),
+	RunE: runAgentProbe,
 }
 
 func runAgentServe(cmd *cobra.Command, _ []string) error {
@@ -144,7 +150,7 @@ func nonLoopbackIPs() []string {
 }
 
 // listenAutoIncrement 尝试绑定 baseAddr；若目标端口被占用，依次递增端口号直到成功。
-// 返回已绑定的 listener 与（可能递增后的）实际监听地址。baseAddr 需形如 ":9100" 或 "host:9100"。
+// 返回已绑定的 listener 与（可能递增后的）实际监听地址。baseAddr 需形如 ":7100" 或 "host:7100"。
 func listenAutoIncrement(baseAddr string, maxTries ...int) (net.Listener, string, error) {
 	const defaultMax = 10
 	max := defaultMax
@@ -260,11 +266,11 @@ func init() {
 	rootCmd.AddCommand(agentCmd)
 
 	fs := agentServeCmd.Flags()
-	fs.StringVar(&serveListen, "listen", ":9100", "HTTP 监听地址")
+	fs.StringVar(&serveListen, "listen", ":7100", "HTTP 监听地址")
 	fs.StringVar(&servePort, "port", "", "串口名，如 COM5")
 	fs.IntVar(&serveBaud, "baud", 115200, "波特率")
 	fs.BoolVar(&serveEnableWrite, "enable-write", false, "开启下行写接口 /api/write（默认关；未指定 --token 时每次生成随机 token 并控制台输出）")
 	fs.StringVar(&serveToken, "token", "", "固定写 token（配合 --enable-write；不设则每次随生成随机值，不落文件）")
 	fs.BoolVar(&serveNoLocalLog, "no-local-log", false, "关闭本地兜底落盘（默认开启）")
-	fs.StringVar(&serveOutDir, "out-dir", "", "本地兜底日志输出目录，默认当前路径")
+	fs.StringVar(&serveOutDir, "out-dir", "logs", "本地兜底日志输出目录，默认运行目录下 logs/")
 }

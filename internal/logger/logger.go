@@ -13,9 +13,12 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// 运行目录下的固定日志文件。工具自身日志同时写 stdout 与该文件，
+// 运行目录下 logs/ 里的固定日志文件。工具自身日志同时写 stdout 与该文件，
 // 避免被 console 节点的输出淹没后无法追溯。文件用无颜色编码。
-const logFileName = "logdiag.log"
+const (
+	logDir      = "logs"
+	logFileName = "logdiag.log"
+)
 
 // Sugar 是全局门面，未初始化时为 nil。使用前先调用 Init。
 var Sugar *zap.SugaredLogger
@@ -24,7 +27,7 @@ var Sugar *zap.SugaredLogger
 var logFile *os.File
 
 // Init 初始化全局 logger。verbose 为 true 时开启 Debug 级。
-// 输出：仅运行目录下固定文件 logdiag.log（无颜色）。
+// 输出：仅运行目录下 logs/logdiag.log（无颜色）。
 // 工具自身日志与 console 节点输出完全隔离：控制台只显示 console 节点的数据流。
 func Init(verbose bool) error {
 	level := zapcore.InfoLevel
@@ -60,9 +63,12 @@ func Init(verbose bool) error {
 	return nil
 }
 
-// openLogFile 打开（追加）运行目录下固定日志文件。
+// openLogFile 打开（追加）运行目录下 logs/logdiag.log（自动建目录）。
 func openLogFile() (*os.File, error) {
-	name := logFileName
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return nil, fmt.Errorf("无法创建日志目录 %s: %w", logDir, err)
+	}
+	name := filepath.Join(logDir, logFileName)
 	// filepath.Abs 仅用于把相对路径规范化，不改变"运行目录"语义。
 	if abs, err := filepath.Abs(name); err == nil {
 		name = abs
