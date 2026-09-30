@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -67,21 +68,57 @@ func Parse(b []byte) (*Config, error) {
 	return &cfg, nil
 }
 
-// Validate 校验配置拓扑：id 唯一、source 无 from、from 引用存在。
+// nodeKind 描述节点的"种类能力"，决定它在 DAG 上能否作为上游/下游。
+// Config 层面用 kind 字符串即可区分，不依赖具体 type，避免 import nodes 造成循环依赖。
+type nodeKind uint8
+
+const (
+	kindUnknown nodeKind = iota
+	kindSource           // 无 in、有 out：DAG 起点
+	kindMiddle           // 有 in、有 out：filter / process
+	kindSink             // 有 in、无 out：DAG 终点
+)
+
+// classify 把 config 中的 kind 归为能力类别。未识别或空按 unknown 处理（由后续校验报出）。
+func classify(kind string) nodeKind {
+	switch kind {
+	case "source":
+		return kindSource
+	case "filter", "process":
+		return kindMiddle
+	case "sink":
+		return kindSink
+	default:
+		return kindUnknown
+	}
+}
+
+// Validate 校验配置拓扑，分三阶段：
+//  1. 结构级：id 非空唯一、type 非空、kind 合法；
+//  2. 边级：source 无 from / 非 source 必须有 from 且引用存在、上游必须有输出（sink 不能作上游）；
+//  3. 图级：环检测（成环会死锁/崩溃，即使非法也须拦下）。
 func (c *Config) Validate() error {
-	ids := map[string]string{} // id -> kind
+	kindOf := map[string]string{}  // id -> kind
+	capOf := map[string]nodeKind{} // id -> 能力类别
 	for _, n := range c.Graph {
 		if n.ID == "" {
 			return errors.New("节点 id 不能为空")
 		}
-		if _, dup := ids[n.ID]; dup {
+		if _, dup := kindOf[n.ID]; dup {
 			return fmt.Errorf("重复节点 id: %s", n.ID)
 		}
 		if n.Type == "" {
 			return fmt.Errorf("节点 %s 缺少 type", n.ID)
 		}
-		ids[n.ID] = n.Kind
+		if classify(n.Kind) == kindUnknown {
+			return fmt.Errorf("节点 %s 的 kind 非法: %q（应为 source/filter/process/sink）", n.ID, n.Kind)
+		}
+		kindOf[n.ID] = n.Kind
+		capOf[n.ID] = classify(n.Kind)
 	}
+
+	// 阶段2：边级约束。
+	adj := map[string][]string{} // from -> []to（环检测用）
 	for _, n := range c.Graph {
 		if n.Kind == "source" {
 			if len(n.From) > 0 {
@@ -89,14 +126,66 @@ func (c *Config) Validate() error {
 			}
 			continue
 		}
-		for _, f := range n.From {
-			if _, ok := ids[f]; !ok {
-				return fmt.Errorf("节点 %s 引用不存在的上游 %s", n.ID, f)
-			}
-		}
 		if len(n.From) == 0 {
 			return fmt.Errorf("节点 %s 是 %s 类型但没有 from", n.ID, n.Kind)
 		}
+		for _, f := range n.From {
+			if k, ok := kindOf[f]; !ok {
+				return fmt.Errorf("节点 %s 引用不存在的上游 %s", n.ID, f)
+			} else if capOf[f] == kindSink {
+				return fmt.Errorf("节点 %s 引用了无输出的上游 %s（sink 型 %s 不能作为上游）", n.ID, f, k)
+			}
+			adj[f] = append(adj[f], n.ID)
+		}
+	}
+
+	// 阶段3：环检测（Kahn 拓扑）。入度 = 被引用次数；出度用邻接表。
+	indeg := map[string]int{}
+	for _, n := range c.Graph {
+		indeg[n.ID] = len(n.From)
+	}
+	queue := []string{}
+	for id, d := range indeg {
+		if d == 0 {
+			queue = append(queue, id)
+		}
+	}
+	for i := 0; i < len(queue); i++ {
+		id := queue[i]
+		for _, to := range adj[id] {
+			indeg[to]--
+			if indeg[to] == 0 {
+				queue = append(queue, to)
+			}
+		}
+	}
+	if len(queue) != len(c.Graph) {
+		// 有环：找出仍未被消化的节点（入度>0），还原它们的环。
+		var cycle []string
+		var start string
+		for id, d := range indeg {
+			if d > 0 {
+				start = id
+				break
+			}
+		}
+		for cur := start; ; {
+			cycle = append(cycle, cur)
+			hit := false
+			for _, to := range adj[cur] {
+				if indeg[to] > 0 {
+					cur, hit = to, true
+					break
+				}
+			}
+			if !hit {
+				break
+			}
+			if len(cycle) > len(c.Graph)+1 { // 兜底防死循环
+				break
+			}
+		}
+		return fmt.Errorf("配置成环: %s", strings.Join(cycle, " -> "))
 	}
 	return nil
 }
