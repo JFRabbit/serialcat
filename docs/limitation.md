@@ -51,7 +51,10 @@ logdiag 的定位是"过滤 + 后续定制处理（LLM / 脚本 / 图表 / 告�
 
 ## 2. 其他已知限制
 
-- **串口代理仅限 Windows**：`source:serial-remote` 是跨平台纯 HTTP 节点，但提供串口物理能力的 `logdiag agent` 只能在 Windows 上运行（`//go:build windows` 的 `go.bug.st/serial` 实现）。macOS/Linux 上的 agent 只返回 unsupported。
-- **串口实时流不经过 `python -m http.server`**：http.server 只能做静态文件分发（用于部署/回传），实时串口流走 agent 自建的 `/api/stream` 长连接；`/api/write` 为阶段② TX 预留。
-- **连续源无自然 EOS**：串口是持续流，靠"连接断开"触发结束；`serial-remote` 对断连按错误返回（不做 EOS）。
-- **回填占位**：网络源、LLM 分析、告警治理等阶段②③范围，随实现进度回填。
+- **串口代理仅限 Windows**：`source:serial-remote` 是跨平台纯 HTTP 节点，但提供串口物理能力的 `logdiag agent` 只能在 Windows 上运行（`//go:build windows` 的 `go.bug.st/serial` 实现）。macOS/Linux 上的 agent 只返回 unsupported；本机直连的 `source:serial` 与本地写同理。
+- **串口实时流不经过 `python -m http.server`**：http.server 只能做静态文件分发（用于部署/回传），实时串口流走 agent 自建的 `/api/stream` 长连接；写命令走 `/api/write`（`send` 命令启用）。
+- **连续源无自然 EOS**：串口是持续流，无"读完"概念。断连时 `serial-remote` 自动重连（带断档标记与指数退避），仅在进程取消或永久性错误（如 4xx）时结束。
+- **本地裸发无回显**：`send --port` 是发完即退的盲发，无法获取设备回显；命令回显混在刷屏日志中不可区分。要看效果需让 run/agent 持有串口再经 `--url` 下发。
+- **`filter:grep` 的 `match` 仅支持单个正则**：配置成数组（多关键词 OR）会报"match 应为字符串"，需改用正则 `|`（见 `docs/roadmap.md`，已列为可扩展项）。
+- **`agent serve` 需监听非回环地址才能被对端访问**：默认绑 `:7100`（0.0.0.0），跨机直连；如需只允许特定网卡需显式指定 `--listen`。
+- **回填占位**：网络源、LLM 分析、告警治理等远期范围，随实现进度回填。
