@@ -17,3 +17,5 @@ tmp/
 .tmp/
 dist/
 build/
+logdiag
+logdiag.exe

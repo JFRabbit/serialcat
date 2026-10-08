@@ -3,9 +3,13 @@ package agent
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -326,5 +330,202 @@ func TestHandleStreamEndToEnd(t *testing.T) {
 	}
 	if f.Ts.IsZero() {
 		t.Error("帧时间戳为零")
+	}
+}
+
+// 以下为 /api/logs 历史读取相关测试。
+
+// logsTestBase 是测试日志的基准时间，递增 step 生成各行时间戳。
+const logsTestBase = "2026-10-08 10:00:00.000"
+
+// writeLogFile 写 n 行落盘格式日志(时间从 base 递增 step,text=fmt.Sprintf(textFmt,i))。
+func writeLogFile(t *testing.T, path string, n int, base time.Time, step time.Duration, textFmt string) {
+	t.Helper()
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		ts := base.Add(time.Duration(i) * step)
+		b.WriteString(ts.Format(logTimeLayout))
+		b.WriteByte(' ')
+		b.WriteString(fmt.Sprintf(textFmt, i))
+		b.WriteByte('\n')
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("写日志文件失败: %v", err)
+	}
+}
+
+// newLogsSrv 构造已设好落盘文件(10 行,text=line-%02d,步长 1s)的 Server 供 /api/logs 测试。
+func newLogsSrv(t *testing.T) *Server {
+	t.Helper()
+	srv, _ := newTestServer(t, Options{})
+	base, err := time.ParseInLocation(logTimeLayout, logsTestBase, time.Local)
+	if err != nil {
+		t.Fatalf("解析基准时间失败: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "test-serial.log")
+	writeLogFile(t, path, 10, base, time.Second, "line-%02d")
+	srv.logPath = path
+	return srv
+}
+
+// callLogs 调用 handleLogs；参数用 qv 构造以正确 URL 编码。
+func callLogs(srv *Server, params url.Values) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/logs?"+params.Encode(), nil)
+	srv.handleLogs(rec, req)
+	return rec
+}
+
+// qv 便捷构造 url.Values：按 key,value 成对传入。
+func qv(pairs ...string) url.Values {
+	v := url.Values{}
+	for i := 0; i+1 < len(pairs); i += 2 {
+		v.Set(pairs[i], pairs[i+1])
+	}
+	return v
+}
+
+// decodeLogs 解析 /api/logs 成功响应。
+func decodeLogs(t *testing.T, rec *httptest.ResponseRecorder) logsResponse {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, 期望 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	var resp logsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析 /api/logs 响应失败: %v (body=%s)", err, rec.Body.String())
+	}
+	return resp
+}
+
+// 正向续读分页：after 游标 + limit 截断，hasMore/next 正确，续读到尾。
+func TestHandleLogs_ForwardPaginated(t *testing.T) {
+	srv := newLogsSrv(t)
+	after := time.Date(2026, 10, 8, 10, 0, 2, 0, time.Local) // 第3行(index2)之后
+
+	// 第一批：after=index2,limit=3 → index3,4,5，hasMore=true,next=index5 时间。
+	resp := decodeLogs(t, callLogs(srv, qv("after", after.Format(logTimeLayout), "limit", "3")))
+	if resp.Count != 3 {
+		t.Fatalf("count = %d, 期望 3", resp.Count)
+	}
+	want := []string{"line-03", "line-04", "line-05"}
+	for i, row := range resp.Rows {
+		if row.Text != want[i] {
+			t.Errorf("rows[%d].Text = %q, 期望 %q", i, row.Text, want[i])
+		}
+	}
+	if !resp.HasMore {
+		t.Error("hasMore 应为 true(仍有剩余)")
+	}
+	if resp.Next != "2026-10-08 10:00:05.000" {
+		t.Errorf("next = %q, 期望 index5 时间", resp.Next)
+	}
+
+	// 第二批：after=next → index6..9 共 4 行，hasMore=false,next 空。
+	resp2 := decodeLogs(t, callLogs(srv, qv("after", resp.Next)))
+	if resp2.Count != 4 {
+		t.Fatalf("第二批 count = %d, 期望 4", resp2.Count)
+	}
+	if resp2.Rows[0].Text != "line-06" || resp2.Rows[3].Text != "line-09" {
+		t.Errorf("第二批行序错误: %v", resp2.Rows)
+	}
+	if resp2.HasMore {
+		t.Error("第二批 hasMore 应为 false(已到文件尾)")
+	}
+	if resp2.Next != "" {
+		t.Errorf("第二批 next 应为空, 得到 %q", resp2.Next)
+	}
+}
+
+// until 上限：只返回 ts<=until 的行。
+func TestHandleLogs_UntilBound(t *testing.T) {
+	srv := newLogsSrv(t)
+	after := time.Date(2026, 10, 8, 10, 0, 0, 0, time.Local) // index0
+	until := time.Date(2026, 10, 8, 10, 0, 3, 0, time.Local) // <= index3
+	resp := decodeLogs(t, callLogs(srv, qv("after", after.Format(logTimeLayout), "until", until.Format(logTimeLayout))))
+	if resp.Count != 3 { // index1,2,3
+		t.Fatalf("count = %d, 期望 3", resp.Count)
+	}
+	if resp.Rows[2].Text != "line-03" {
+		t.Errorf("最后一行 = %q, 期望 line-03", resp.Rows[2].Text)
+	}
+	if resp.HasMore {
+		t.Error("until 到达边界后 hasMore 应为 false")
+	}
+}
+
+// filter 正则过滤：只返回命中行。
+func TestHandleLogs_Filter(t *testing.T) {
+	srv := newLogsSrv(t)
+	resp := decodeLogs(t, callLogs(srv, qv("filter", "^line-0[345]$")))
+	if resp.Count != 3 {
+		t.Fatalf("count = %d, 期望 3", resp.Count)
+	}
+	if resp.Rows[0].Text != "line-03" || resp.Rows[2].Text != "line-05" {
+		t.Errorf("filter 命中行错误: %v", resp.Rows)
+	}
+}
+
+// 尾部快照：返回最近 N 条,时间正序。
+func TestHandleLogs_Tail(t *testing.T) {
+	srv := newLogsSrv(t)
+	resp := decodeLogs(t, callLogs(srv, qv("tail", "true", "limit", "3")))
+	if resp.Count != 3 {
+		t.Fatalf("count = %d, 期望 3", resp.Count)
+	}
+	if resp.Rows[0].Text != "line-07" || resp.Rows[2].Text != "line-09" {
+		t.Errorf("尾部最近 3 条错误: %v", resp.Rows)
+	}
+	if resp.HasMore {
+		t.Error("tail 的 hasMore 应为 false")
+	}
+}
+
+// 尾部快照 + filter：最近 N 条命中行,时间正序。
+func TestHandleLogs_TailFilter(t *testing.T) {
+	srv := newLogsSrv(t)
+	resp := decodeLogs(t, callLogs(srv, qv("tail", "true", "limit", "3", "filter", "^line-0[579]$")))
+	if resp.Count != 3 {
+		t.Fatalf("count = %d, 期望 3", resp.Count)
+	}
+	want := []string{"line-05", "line-07", "line-09"}
+	for i, row := range resp.Rows {
+		if row.Text != want[i] {
+			t.Errorf("rows[%d].Text = %q, 期望 %q", i, row.Text, want[i])
+		}
+	}
+}
+
+// 边界与错误。
+func TestHandleLogs_Errors(t *testing.T) {
+	// 未开启本地落盘(logPath 为空) → 404。
+	srv, _ := newTestServer(t, Options{})
+	if rec := callLogs(srv, qv()); rec.Code != http.StatusNotFound {
+		t.Errorf("无落盘日志状态码 = %d, 期望 404", rec.Code)
+	}
+
+	lsrv := newLogsSrv(t)
+	// after > until → 400。
+	a := "2026-10-08 10:00:05.000"
+	u := "2026-10-08 10:00:01.000"
+	rec := callLogs(lsrv, qv("after", a, "until", u))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("after>until 状态码 = %d, 期望 400", rec.Code)
+	}
+	// tail 与 after 冲突 → 400。
+	if rec = callLogs(lsrv, qv("tail", "true", "after", a)); rec.Code != http.StatusBadRequest {
+		t.Errorf("tail+after 状态码 = %d, 期望 400", rec.Code)
+	}
+	// limit 非法(0) → 400。
+	if rec = callLogs(lsrv, qv("limit", "0")); rec.Code != http.StatusBadRequest {
+		t.Errorf("limit=0 状态码 = %d, 期望 400", rec.Code)
+	}
+	// filter 正则非法 → 400。
+	if rec = callLogs(lsrv, qv("filter", "[invalid")); rec.Code != http.StatusBadRequest {
+		t.Errorf("filter 非法状态码 = %d, 期望 400", rec.Code)
+	}
+	// after 时间格式非法 → 400。
+	if rec = callLogs(lsrv, qv("after", "not-a-time")); rec.Code != http.StatusBadRequest {
+		t.Errorf("after 非法时间状态码 = %d, 期望 400", rec.Code)
 	}
 }
