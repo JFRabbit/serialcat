@@ -108,7 +108,7 @@ graph:
 
 // TestRunEndToEnd 端到端跑 file → grep → file：
 // 输入文件里既有匹配行也有不匹配行，断言 sink 落盘内容只含匹配行。
-// Run 是阻塞的，source:file 有界会自然结束；另加超时 ctx 兜底防挂死。
+// Run 是阻塞的，source:file 有界会自然结束；另加超时 ctx 防挂死。
 // t.Chdir 隔离运行目录，避免 sink 默认路径 / 相对路径污染仓库。
 func TestRunEndToEnd(t *testing.T) {
 	dir := t.TempDir()

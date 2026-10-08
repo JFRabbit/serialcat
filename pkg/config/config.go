@@ -181,7 +181,7 @@ func (c *Config) Validate() error {
 			if !hit {
 				break
 			}
-			if len(cycle) > len(c.Graph)+1 { // 兜底防死循环
+			if len(cycle) > len(c.Graph)+1 { // 防死循环保险丝
 				break
 			}
 		}

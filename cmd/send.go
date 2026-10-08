@@ -81,7 +81,7 @@ func (w *localWriter) Send(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// escapeCmd 将命令中的 \r \n \t 字面转义统一替换为真实控制字符（发送侧兜底）。
+// escapeCmd 将命令中的 \r \n \t 字面转义统一替换为真实控制字符（兼容用户手工转义）
 func escapeCmd(s string) string {
 	return strings.NewReplacer(`\r`, "\r", `\n`, "\n", `\t`, "\t").Replace(s)
 }

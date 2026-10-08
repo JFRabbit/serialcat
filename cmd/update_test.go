@@ -351,7 +351,7 @@ func TestResolveUpdateURLPriority(t *testing.T) {
 
 	t.Setenv("LOGDIAG_UPDATE_URL", "")
 	if got := resolveUpdateURL(); got != "http://ldflags" {
-		t.Fatalf("编译注入兜底: got %q", got)
+		t.Fatalf("ldflags 注入未生效: got %q", got)
 	}
 
 	DefaultUpdateURL = "unset"

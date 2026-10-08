@@ -16,15 +16,15 @@ import (
 	"logdiag/pkg/serial"
 )
 
-// Options 是 agent serve 的启动选项，控制写接口暴露与本地兜底落盘。
+// Options 是 agent serve 的启动选项，控制写接口暴露与本地落盘（默认开启）。
 type Options struct {
 	// WriteEnabled 是否暴露下行写接口 /api/write。默认关闭（返回 403），最安全。
 	WriteEnabled bool
 	// WriteToken 写接口鉴权令牌。非空时 /api/write 要求 Authorization: Bearer <token>。
 	WriteToken string
-	// NoLocalLog 关闭本地兜底落盘（默认开启）。开启时串口帧流额外写当前路径日志文件作为兜底。
+	// NoLocalLog 关闭本地默认落盘（默认开启）。开启时串口帧流额外写当前路径日志文件。
 	NoLocalLog bool
-	// OutDir 兜底落盘输出目录，默认当前路径。
+	// OutDir 默认落盘输出目录，默认当前路径。
 	OutDir string
 }
 
@@ -75,7 +75,7 @@ func (s *Server) Start(ctx context.Context) error {
 			cancel()
 		}
 	}()
-	// 本地兜底落盘：默认开启，串口流额外写本地文件（与 /api/stream 订阅完全解耦）。
+	// 本地默认落盘：默认开启，串口流额外写本地文件（与 /api/stream 订阅完全解耦）。
 	if !s.opts.NoLocalLog {
 		s.startLocalLog(sctx)
 	}
@@ -157,7 +157,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleWrite 下行命令。未开启写开关时返回 403；开启后校验 Bearer token（若设置）。
-// data 中的 \r　\n \t 字面转义统一在发送侧处理，此处兜底再转义一次（幂等）。
+// data 中的 \r　\n \t 字面转义统一在发送侧处理，此处再转义一次做幂等保障。
 func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 	if !s.opts.WriteEnabled {
 		http.Error(w, "写接口未开启，agent 启动时需加 --enable-write", http.StatusForbidden)
@@ -181,7 +181,7 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"ok": "sent"})
 }
 
-// startLocalLog 订阅串口帧流并写入本地兜底日志文件（默认开启）。
+// startLocalLog 订阅串口帧流并写入本地落盘日志文件（默认开启）。
 // 文件名 logdiag-serial-{port}-{ts}.log，{ts} 展开为启动时间戳（复用既有约定）。
 func (s *Server) startLocalLog(ctx context.Context) {
 	name := fmt.Sprintf("logdiag-serial-%s-%s.log", s.port, time.Now().Format("20060102-150405"))
@@ -190,13 +190,13 @@ func (s *Server) startLocalLog(ctx context.Context) {
 	}
 	if dir := filepath.Dir(name); dir != "." && dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			logger.Error("创建兜底日志目录失败: %v", err)
+			logger.Error("创建落盘日志目录失败: %v", err)
 			return
 		}
 	}
 	f, err := os.Create(name)
 	if err != nil {
-		logger.Error("创建本地兜底日志失败: %v", err)
+		logger.Error("创建本地落盘日志失败: %v", err)
 		return
 	}
 	ch, err := s.src.Subscribe(ctx)
@@ -210,32 +210,32 @@ func (s *Server) startLocalLog(ctx context.Context) {
 		curPath := name
 		defer func() { _ = w.Flush(); _ = f.Close() }()
 		for fr := range ch {
-			// 兜底文件被外部删除/移走时,重建同名(或递增后缀)文件继续追加,保证兜底不断。
+			// 落盘文件被外部删除/移走时,重建同名(或递增后缀)文件继续追加,保证不中断。
 			if _, err := os.Stat(curPath); err != nil {
 				if nf, npath, e := recreateLogFile(curPath); e == nil {
 					_ = w.Flush() // 旧缓冲尽量落盘
 					_ = f.Close() // 关闭旧句柄,defer 将关闭新句柄
 					f, w, curPath = nf, bufio.NewWriter(nf), npath
-					fmt.Printf("兜底日志文件被删除,已重建续写: %s\n", npath)
+					fmt.Printf("日志文件被删除,已重建续写: %s\n", npath)
 				} else {
-					logger.Error("重建兜底日志失败: %v", e)
+					logger.Error("重建落盘日志失败: %v", e)
 				}
 			}
 			_, _ = fmt.Fprintf(w, "%s %s\n", fr.Ts.Format("2006-01-02 15:04:05.000"), fr.Text)
-			// 逐行 flush：兜底日志必须实时落盘，避免攒在 4KB 缓冲里"过一会才出现"。
+			// 逐行 flush：落盘日志必须实时写盘，避免攒在 4KB 缓冲里"过一会才出现"。
 			_ = w.Flush()
 		}
 	}()
-	// 控制台打印输出文件名,方便定位兜底日志（standalone stdout,与 logger 隔离）。
+	// 控制台打印输出文件名,方便定位落盘日志（standalone stdout,与 logger 隔离）。
 	if abs, err := filepath.Abs(name); err == nil {
-		fmt.Printf("本地兜底日志: %s\n", abs)
+		fmt.Printf("本地落盘日志: %s\n", abs)
 	} else {
-		fmt.Printf("本地兜底日志: %s\n", name)
+		fmt.Printf("本地落盘日志: %s\n", name)
 	}
-	logger.Info("本地兜底日志已开启: %s", name)
+	logger.Info("本地落盘日志已开启: %s", name)
 }
 
-// recreateLogFile 在兜底日志文件被删除后重建:优先同名;同名创建失败(如被目录占用)
+// recreateLogFile 在落盘日志文件被删除后重建:优先同名;同名创建失败(如被目录占用)
 // 则自动递增后缀(如 xxx-1.log)。返回新句柄与新路径。
 func recreateLogFile(name string) (*os.File, string, error) {
 	if dir := filepath.Dir(name); dir != "." && dir != "" {
@@ -254,7 +254,7 @@ func recreateLogFile(name string) (*os.File, string, error) {
 			return f, alt, nil
 		}
 	}
-	return nil, "", fmt.Errorf("无法重开兜底日志(同名及 1000 个后缀均失败): %s", name)
+	return nil, "", fmt.Errorf("无法重开默认日志(同名及 1000 个后缀均失败): %s", name)
 }
 
 // handleProbe 对指定端口做波特率探测并返回推荐参数。

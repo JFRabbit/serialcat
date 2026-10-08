@@ -152,7 +152,7 @@ func (n *FileSink) Run(ctx context.Context, in <-chan []dag.Item) error {
 				return ctx.Err()
 			default:
 			}
-			// 文件被外部删除/移走时，重建同名文件继续追加（与 agent 兜底一致）。
+			// 文件被外部删除/移走时，重建同名文件继续追加（与 agent 落盘一致）。
 			if _, err := os.Stat(curPath); err != nil {
 				if nf, npath, e := recreateSinkFile(curPath); e == nil {
 					_ = w.Flush()

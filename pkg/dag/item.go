@@ -4,7 +4,7 @@ import "time"
 
 // Item 是在边上传送的一条记录。它是一条不可再分的日志单元。
 type Item struct {
-	Ts   time.Time         // 记录时间（或到达时间兜底）
+	Ts   time.Time         // 记录时间（未采样到则以到达时间回退）
 	Text string            // 原始行文本
 	Src  string            // 来源节点 id
 	Meta map[string]string // 可选键值，由加工节点填充

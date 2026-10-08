@@ -271,6 +271,6 @@ func init() {
 	fs.IntVar(&serveBaud, "baud", 115200, "波特率")
 	fs.BoolVar(&serveEnableWrite, "enable-write", false, "开启下行写接口 /api/write（默认关；未指定 --token 时每次生成随机 token 并控制台输出）")
 	fs.StringVar(&serveToken, "token", "", "固定写 token（配合 --enable-write；不设则每次随生成随机值，不落文件）")
-	fs.BoolVar(&serveNoLocalLog, "no-local-log", false, "关闭本地兜底落盘（默认开启）")
-	fs.StringVar(&serveOutDir, "out-dir", "logs", "本地兜底日志输出目录，默认运行目录下 logs/")
+	fs.BoolVar(&serveNoLocalLog, "no-local-log", false, "关闭本地默认落盘（默认开启）")
+	fs.StringVar(&serveOutDir, "out-dir", "logs", "本地落盘日志输出目录，默认运行目录下 logs/")
 }

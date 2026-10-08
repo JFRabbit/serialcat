@@ -82,7 +82,7 @@ func TestBuildProcessArgsElemWrongType(t *testing.T) {
 	}
 }
 
-// TestBuildUnsupportedKindType 覆盖不支持的 kind:type 默认分支。
+// TestBuildUnsupportedKindType 覆盖不支持的 kind:type 回退分支。
 func TestBuildUnsupportedKindType(t *testing.T) {
 	nc := config.NodeConfig{ID: "u", Kind: "source", Type: "nosuch", Conf: map[string]any{}}
 	err := buildErr(t, nc)

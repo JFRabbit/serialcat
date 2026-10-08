@@ -74,7 +74,7 @@ func TestFileSinkRunRecreate(t *testing.T) {
 	}
 }
 
-// TestFileSinkRunDirOccupiedMidRun 覆盖运行期同名被目录占用的兜底：
+// TestFileSinkRunDirOccupiedMidRun 覆盖运行期同名被目录占用的回退分支：
 // 文件被删且同名目录占位后，os.Stat 对目录仍成功（不会走重建），
 // 行写入旧的已删除 fd 不报错，Run 应整体顺利完成、不因异常中断。
 // 真正的同名重建递增后缀逻辑见 TestRecreateSinkFileDirOccupied。
