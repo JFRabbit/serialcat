@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"logdiag/pkg/dag"
-	"logdiag/pkg/serial"
+	"github.com/JFRabbit/serialcat/pkg/dag"
+	"github.com/JFRabbit/serialcat/pkg/serial"
 )
 
 // LocalSerial 是 source 节点：从本机串口读行 → 切批发射，接入上游同一套批量 DAG。

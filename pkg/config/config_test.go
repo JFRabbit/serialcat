@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"logdiag/pkg/config"
+	"github.com/JFRabbit/serialcat/pkg/config"
 )
 
 // node 是构造测试用例的简写。

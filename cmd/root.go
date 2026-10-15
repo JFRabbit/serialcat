@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"logdiag/internal/console"
-	"logdiag/internal/constant"
-	"logdiag/internal/logger"
+	"github.com/JFRabbit/serialcat/internal/console"
+	"github.com/JFRabbit/serialcat/internal/constant"
+	"github.com/JFRabbit/serialcat/internal/logger"
 )
 
 // 版本注入变量：由 ldflags 覆盖。
@@ -27,7 +27,7 @@ var debug bool
 var rootCmd = &cobra.Command{
 	Use:     constant.AppName,
 	Short:   "串口日志读取、过滤、下发命令的轻量工具",
-	Long:    "logdiag 串口日志抓取工具",
+	Long:    "serialcat 串口日志抓取工具",
 	Version: fmt.Sprintf("%s commit %s at %s", Version, Commit, BuildTime),
 	// flag 解析完成后只执行一次：初始化 logger。
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -46,7 +46,7 @@ func Execute() {
 			logger.Error("%s", err)
 		}
 		// 错误始终打到 stderr，便于 send 等一次性命令立刻看到失败原因；
-		// 同时（logger 已初始化时）记录到 logdiag.log。
+		// 同时（logger 已初始化时）记录到 serialcat.log。
 		os.Stderr.WriteString(err.Error() + "\n")
 		os.Exit(1)
 	}

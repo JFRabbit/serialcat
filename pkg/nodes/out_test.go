@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"logdiag/pkg/dag"
+	"github.com/JFRabbit/serialcat/pkg/dag"
 )
 
 // feedBatches 把若干批次写入 in 后关闭，模拟上游 EOS。

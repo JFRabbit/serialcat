@@ -10,7 +10,7 @@
 ### 1.1 背景
 
 研发常用场景是"从大日志里筛出含任一关键词的行"（多关键词 OR）。
-logdiag 用 `filter:grep` 节点 + 内置 `bgrep` 正则过滤落盘实现，
+serialcat 用 `filter:grep` 节点 + 内置 `bgrep` 正则过滤落盘实现，
 与系统 `grep -a -e A -e B ...` 做同一份输入的对拍。
 
 **测试样本**：`raw/changed_hostname_die_0924.txt`（约 221MB，2,210,841 行）。
@@ -19,9 +19,9 @@ logdiag 用 `filter:grep` 节点 + 内置 `bgrep` 正则过滤落盘实现，
 | 工具 | 耗时 | 吞吐 | 命中数 |
 |---|---|---|---|
 | 系统 `grep -a -e ...`（DFA） | 7.17s | ~30MB/s | 8960 |
-| `logdiag run`（当前批量版） | 12.86s | ~17MB/s | 8960 |
+| `serialcat run`（当前批量版） | 12.86s | ~17MB/s | 8960 |
 
-logdiag 当前约为 grep 的 **1/1.8** 速度。
+serialcat 当前约为 grep 的 **1/1.8** 速度。
 
 ### 1.2 根因
 
@@ -38,7 +38,7 @@ logdiag 当前约为 grep 的 **1/1.8** 速度。
 
 ### 1.3 定位说明
 
-logdiag 的定位是"过滤 + 后续定制处理（LLM / 脚本 / 图表 / 告警）"的**管道**，
+serialcat 的定位是"过滤 + 后续定制处理（LLM / 脚本 / 图表 / 告警）"的**管道**，
 单斧过滤这一步短期追不上原生 grep。这是引擎选型差异，属于**已接受**的取舍。
 
 ### 1.4 可选优化方向（未实现，记录备查）
@@ -51,7 +51,7 @@ logdiag 的定位是"过滤 + 后续定制处理（LLM / 脚本 / 图表 / 告�
 
 ## 2. 其他已知限制
 
-- **串口代理仅限 Windows**：`source:serial-remote` 是跨平台纯 HTTP 节点，但提供串口物理能力的 `logdiag agent` 只能在 Windows 上运行（`//go:build windows` 的 `go.bug.st/serial` 实现）。macOS/Linux 上的 agent 只返回 unsupported；本机直连的 `source:serial` 与本地写同理。
+- **串口代理仅限 Windows**：`source:serial-remote` 是跨平台纯 HTTP 节点，但提供串口物理能力的 `serialcat agent` 只能在 Windows 上运行（`//go:build windows` 的 `go.bug.st/serial` 实现）。macOS/Linux 上的 agent 只返回 unsupported；本机直连的 `source:serial` 与本地写同理。
 - **串口实时流不经过 `python -m http.server`**：http.server 只能做静态文件分发（用于部署/回传），实时串口流走 agent 自建的 `/api/stream` 长连接；写命令走 `/api/write`（`send` 命令启用）。
 - **连续源无自然 EOS**：串口是持续流，无"读完"概念。断连时 `serial-remote` 自动重连（带断档标记与指数退避），仅在进程取消或永久性错误（如 4xx）时结束。
 - **本地裸发无回显**：`send --port` 是发完即退的盲发，无法获取设备回显；命令回显混在刷屏日志中不可区分。要看效果需让 run/agent 持有串口再经 `--url` 下发。

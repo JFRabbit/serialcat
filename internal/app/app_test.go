@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"logdiag/internal/app"
+	"github.com/JFRabbit/serialcat/internal/app"
 )
 
 // writeCfg 把 YAML 配置写入 t.TempDir() 并返回路径。

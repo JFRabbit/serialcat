@@ -1,10 +1,10 @@
-# logdiag 使用指南
+# serialcat 使用指南
 
 > 面向**使用用户**。这里讲"怎么用"，不深入技术细节；想看架构与内部设计见根目录 `README.md`。
 
-logdiag 是一个轻量的本地日志处理工具。最常见的几个用途：
+serialcat 是一个轻量的本地日志处理工具。最常见的几个用途：
 
-- 实时看**串口日志**（尤其嵌入式设备的 `logdiag agent` 串口流，支持远程查看）。
+- 实时看**串口日志**（尤其嵌入式设备的 `serialcat agent` 串口流，支持远程查看）。
 - 从大日志里**筛出关心的行**，打印或存文件。
 - 向串口设备**下发命令**，把设备的串口想成"远程可操作的终端"。
 - 给 code agent / AI 提供**日志访问通道**：串口日志可跨网络拉取、实时且可回溯，方便工具与 AI 稳定地消费日志。
@@ -13,26 +13,26 @@ logdiag 是一个轻量的本地日志处理工具。最常见的几个用途：
 
 ## 1. 安装
 
-到发布目录下载对应的二进制放到一起即可。命令名：**`logdiag`**。
+到发布目录下载对应的二进制放到一起即可。命令名：**`serialcat`**。
 
-不同平台/架构对应不同的文件，例如 Windows 用 `logdiag.exe`，macOS（Intel）用 `logdiag`（darwin/amd64）。
+不同平台/架构对应不同的文件，例如 Windows 用 `serialcat.exe`，macOS（Intel）用 `serialcat`（darwin/amd64）。
 
-> 说明：logdiag 本身在 Windows/macOS/Linux 都能运行查看远端串口；但"直接连本机串口"的能力（`agent` 与本地写）**目前仅限 Windows**。
+> 说明：serialcat 本身在 Windows/macOS/Linux 都能运行查看远端串口；但"直接连本机串口"的能力（`agent` 与本地写）**目前仅限 Windows**。
 
 验证安装：
 
 ```bash
-logdiag version
+serialcat version
 ```
 
 ---
 
 ## 2. 核心概念：配置文件（YAML）
 
-logdiag 按"一条日志流水怎么走"来工作，这个流水叫 **DAG**，写在一个 YAML 文件里，用 `-f` 指定：
+serialcat 按"一条日志流水怎么走"来工作，这个流水叫 **DAG**，写在一个 YAML 文件里，用 `-f` 指定：
 
 ```bash
-logdiag run -f 你的配置.yaml
+serialcat run -f 你的配置.yaml
 ```
 
 一个配置描述了几种"节点"和它们之间的连接关系：
@@ -93,8 +93,8 @@ graph:
 先校验配置无误再跑：
 
 ```bash
-logdiag verify -f big_log.yaml    # 只看配置对不对
-logdiag run -f big_log.yaml       # 跑起来
+serialcat verify -f big_log.yaml    # 只看配置对不对
+serialcat run -f big_log.yaml       # 跑起来
 ```
 
 > `verify` 只做检查不执行，建议改完配置先 verify 一遍。
@@ -104,7 +104,7 @@ logdiag run -f big_log.yaml       # 跑起来
 串口物理插在 **Windows** 机器上，先在那跑 agent（波特率默认 115200、HTTP 默认 `:7100`，不传即可）：
 
 ```bash
-logdiag agent serve
+serialcat agent serve
 ```
 
 启动后它会打印本机可访问的地址（形如 `http://192.168.1.x:7100`），记下来。若 7100 被占用会自动 +1 递增端口。
@@ -127,7 +127,7 @@ graph:
 然后：
 
 ```bash
-logdiag run -f serial.yaml
+serialcat run -f serial.yaml
 ```
 
 串口日志就会实时刷到屏幕上。断线会自动重连并有"断档"提示。
@@ -138,24 +138,24 @@ logdiag run -f serial.yaml
 
 有**两种**方式，取决于串口被谁占用。
 
-**方式 A（推荐，能看设备回显）**：串口由 `run`/`agent` 持有，logdiag 通过 HTTP 通道下发命令，设备的回显会沿登录流返回。
+**方式 A（推荐，能看设备回显）**：串口由 `run`/`agent` 持有，serialcat 通过 HTTP 通道下发命令，设备的回显会沿登录流返回。
 
 - 持有着开启写通道：
   - agent：`agent serve --enable-write`（会打印一个 token）
-  - 本地：`logdiag run --enable-write -f 配置.yaml`
+  - 本地：`serialcat run --enable-write -f 配置.yaml`
 - 下发命令（默认发本机写通道 `127.0.0.1:7100`；写远程就加 `--url` 和 `--token`）：
 
 ```bash
-logdiag send "ls -al"
-logdiag send "AT+OPEN"
-logdiag send --url http://192.168.1.x:7100 --token <token> "reboot"
+serialcat send "ls -al"
+serialcat send "AT+OPEN"
+serialcat send --url http://192.168.1.x:7100 --token <token> "reboot"
 ```
 
 **方式 B（裸发）**：串口空闲独占时，直接指定本机串口盲发，发完即退、看不到回显：
 
 ```bash
-logdiag send --port COM5 "ls"
-logdiag send --port COM5 --cmd "echo hi" arg1     # --cmd 与位置参数会拼接
+serialcat send --port COM5 "ls"
+serialcat send --port COM5 --cmd "echo hi" arg1     # --cmd 与位置参数会拼接
 ```
 
 > 细节：命令默认会自动补一个回车 `\r` 触发执行；末尾已带 `\r`/`\n` 则不重复补。想精确发字节用 `--raw`。
@@ -166,15 +166,15 @@ logdiag send --port COM5 --cmd "echo hi" arg1     # --cmd 与位置参数会拼�
 
 | 命令 | 用途 |
 |---|---|
-| `logdiag run -f x.yaml` | 执行一套 DAG 配置流水 |
-| `logdiag verify -f x.yaml` | 只校验配置是否正确，不运行 |
-| `logdiag version [--short]` | 打印版本号 |
-| `logdiag update [--check]` | 检查并更新到最新版本 |
-| `logdiag agent serve ...` | 在 Windows 开串口代理 |
-| `logdiag agent probe [port]` | 列出本机串口 / 探测波特率 |
-| `logdiag send ...` | 向串口下发一条命令 |
+| `serialcat run -f x.yaml` | 执行一套 DAG 配置流水 |
+| `serialcat verify -f x.yaml` | 只校验配置是否正确，不运行 |
+| `serialcat version [--short]` | 打印版本号 |
+| `serialcat update [--check]` | 检查并更新到最新版本 |
+| `serialcat agent serve ...` | 在 Windows 开串口代理 |
+| `serialcat agent probe [port]` | 列出本机串口 / 探测波特率 |
+| `serialcat send ...` | 向串口下发一条命令 |
 
-`logdiag -h` 或 `logdiag <命令> -h` 可以随时看帮助。
+`serialcat -h` 或 `serialcat <命令> -h` 可以随时看帮助。
 
 ---
 

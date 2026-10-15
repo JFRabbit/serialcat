@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"logdiag/internal/logger"
-	"logdiag/pkg/dag"
+	"github.com/JFRabbit/serialcat/internal/logger"
+	"github.com/JFRabbit/serialcat/pkg/dag"
 )
 
 // Process 是 process 节点：把上游 batch（[]Item）交给外部子进程处理，结果译回 []Item 后传下游。

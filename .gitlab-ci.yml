@@ -1,8 +1,8 @@
-# logdiag 的 GitLab CI：Go 测试 → 多平台编译 → mc 上传产物到 MinIO。
+# serialcat 的 GitLab CI：Go 测试 → 多平台编译 → mc 上传产物到 MinIO。
 # 上传目录结构（与 internal/updater 的 version.json / 下载路径对齐）：
-#   {bucket}/logdiag/version.json
-#   {bucket}/logdiag/{version}/{platform}/logdiag(.exe)
-#   {bucket}/logdiag/{version}/usage.md            # 配套使用文档（存在时才打包）
+#   {bucket}/serialcat/version.json
+#   {bucket}/serialcat/{version}/{platform}/serialcat(.exe)
+#   {bucket}/serialcat/{version}/usage.md            # 配套使用文档（存在时才打包）
 include:
   - project: 'BJ/cicd/template/components/cli'
     ref: master
@@ -16,8 +16,8 @@ stages:
   - build
 
 variables:
-  ARTIFACT_NAME: logdiag
-  MODULE: logdiag
+  ARTIFACT_NAME: serialcat
+  MODULE: github.com/JFRabbit/serialcat
   # 生产 MinIO 更新源地址前缀，编译时注入 cmd.DefaultUpdateURL（update 子命令用）
   # 在 GitLab CI/CD Settings 中配置 UPDATE_URL 变量
   EXTRA_LDFLAGS: "-X ${MODULE}/cmd.DefaultUpdateURL=${UPDATE_URL}"
@@ -29,8 +29,8 @@ build:
   extends: .go_build_default_seq
   variables:
     PLATFORMS: "linux/amd64 windows/amd64 darwin/amd64 darwin/arm64"
-    # mc 上传目标：版本目录 clone 到 {bucket}/logdiag/{version}/（目录风格用 mirror）
-    UPLOAD_PATH: "logdiag/${ARTIFACT_VERSION}/"
+    # mc 上传目标：版本目录 clone 到 {bucket}/serialcat/{version}/（目录风格用 mirror）
+    UPLOAD_PATH: "serialcat/${ARTIFACT_VERSION}/"
     UPLOAD_SOURCE_PATH: "${OUTPUT_DIR}/${ARTIFACT_VERSION}"
   script:
     - !reference [.go_build_default_seq, script]
@@ -42,5 +42,5 @@ build:
       fi
     - !reference [.go_update_version_json, script]
     - !reference [.mc_upload, script]
-    # version.json 需落在 {bucket}/logdiag/version.json（update 拉最新版本的入口），单独上传到根目录
-    - mc cp "${OUTPUT_DIR}/version.json" "${MC_ALIAS}/${MC_BUCKET}/logdiag/version.json"
+    # version.json 需落在 {bucket}/serialcat/version.json（update 拉最新版本的入口），单独上传到根目录
+    - mc cp "${OUTPUT_DIR}/version.json" "${MC_ALIAS}/${MC_BUCKET}/serialcat/version.json"

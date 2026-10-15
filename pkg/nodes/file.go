@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"logdiag/pkg/dag"
+	"github.com/JFRabbit/serialcat/pkg/dag"
 )
 
 // FileSource 是一次性读取文件的 source 节点。

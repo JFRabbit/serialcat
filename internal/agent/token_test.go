@@ -3,7 +3,7 @@ package agent_test
 import (
 	"testing"
 
-	"logdiag/internal/agent"
+	"github.com/JFRabbit/serialcat/internal/agent"
 )
 
 // RandomToken：正常入参应返回 2n 长度的十六进制串。

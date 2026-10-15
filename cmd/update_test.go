@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"logdiag/internal/updater"
+	"github.com/JFRabbit/serialcat/internal/updater"
 )
 
 // fakeSource 实现 updater.Source, 通过函数字段控制各方法行为。
@@ -111,7 +111,7 @@ func TestRunUpdateCheckLatestFailed(t *testing.T) {
 func TestRunUpdateCompareVersionFailed(t *testing.T) {
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
-			return newVersionInfo("not-a-version", "bin/logdiag", ""), nil
+			return newVersionInfo("not-a-version", "bin/serialcat", ""), nil
 		},
 	}
 	restore := updateTestEnv(t, src, "", nil)
@@ -128,7 +128,7 @@ func TestRunUpdateCompareVersionFailed(t *testing.T) {
 func TestRunUpdateAlreadyLatest(t *testing.T) {
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
-			return newVersionInfo("1.0.0", "bin/logdiag", ""), nil
+			return newVersionInfo("1.0.0", "bin/serialcat", ""), nil
 		},
 	}
 	restore := updateTestEnv(t, src, "", nil)
@@ -145,7 +145,7 @@ func TestRunUpdateAlreadyLatest(t *testing.T) {
 // 下载成功后完成替换并返回 nil (临时文件应被清理)。
 func TestRunUpdateForceDownloadSuccess(t *testing.T) {
 	dir := t.TempDir()
-	exe := filepath.Join(dir, "logdiag")
+	exe := filepath.Join(dir, "serialcat")
 	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestRunUpdateForceDownloadSuccess(t *testing.T) {
 	content := []byte("new-binary")
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
-			return newVersionInfo("1.0.0", "bin/logdiag", ""), nil
+			return newVersionInfo("1.0.0", "bin/serialcat", ""), nil
 		},
 		download: func(ctx context.Context, url, dst string) error {
 			if dst != exe+".new" {
@@ -187,7 +187,7 @@ func TestRunUpdateCheckOnly(t *testing.T) {
 	downloadCalled := false
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
-			return newVersionInfo("2.0.0", "bin/logdiag", ""), nil
+			return newVersionInfo("2.0.0", "bin/serialcat", ""), nil
 		},
 		download: func(ctx context.Context, url, dst string) error {
 			downloadCalled = true
@@ -215,7 +215,7 @@ func TestRunUpdatePlatformMissing(t *testing.T) {
 			return &updater.VersionInfo{Latest: "2.0.0", Platforms: map[string]string{}}, nil
 		},
 	}
-	restore := updateTestEnv(t, src, "/tmp/logdiag", nil)
+	restore := updateTestEnv(t, src, "/tmp/serialcat", nil)
 	defer restore()
 	Version = "1.0.0"
 	updateSourceURL = "http://127.0.0.1:9000/bucket"
@@ -234,7 +234,7 @@ func TestRunUpdateExePathFailed(t *testing.T) {
 	wantErr := errors.New("找不到可执行文件")
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
-			return newVersionInfo("2.0.0", "bin/logdiag", ""), nil
+			return newVersionInfo("2.0.0", "bin/serialcat", ""), nil
 		},
 	}
 	restore := updateTestEnv(t, src, "", wantErr)
@@ -250,13 +250,13 @@ func TestRunUpdateExePathFailed(t *testing.T) {
 // 覆盖分支: 下载失败, 错误原样返回, 且不替换可执行文件。
 func TestRunUpdateDownloadFailed(t *testing.T) {
 	wantErr := errors.New("下载超时")
-	exe := filepath.Join(t.TempDir(), "logdiag")
+	exe := filepath.Join(t.TempDir(), "serialcat")
 	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
-			return newVersionInfo("2.0.0", "bin/logdiag", ""), nil
+			return newVersionInfo("2.0.0", "bin/serialcat", ""), nil
 		},
 		download: func(ctx context.Context, url, dst string) error {
 			return wantErr
@@ -281,13 +281,13 @@ func TestRunUpdateDownloadFailed(t *testing.T) {
 
 // 覆盖分支: 下载成功但 SHA256 校验失败时报错, 且不替换可执行文件。
 func TestRunUpdateSHA256Mismatch(t *testing.T) {
-	exe := filepath.Join(t.TempDir(), "logdiag")
+	exe := filepath.Join(t.TempDir(), "serialcat")
 	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
-			return newVersionInfo("2.0.0", "bin/logdiag", "deadbeef"), nil
+			return newVersionInfo("2.0.0", "bin/serialcat", "deadbeef"), nil
 		},
 		download: func(ctx context.Context, url, dst string) error {
 			return os.WriteFile(dst, []byte("tampered"), 0o644)

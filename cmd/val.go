@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"logdiag/internal/app"
-	"logdiag/internal/constant"
+	"github.com/JFRabbit/serialcat/internal/app"
+	"github.com/JFRabbit/serialcat/internal/constant"
 )
 
 // valCmd 校验配置拓扑，不执行 DAG。成功/失败结果直接输出到控制台。

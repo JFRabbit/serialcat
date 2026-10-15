@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"logdiag/pkg/serial"
+	"github.com/JFRabbit/serialcat/pkg/serial"
 )
 
 // sendConfig 汇聚 send 子命令的入参，决定走远程写还是本地写。
@@ -91,11 +91,11 @@ var sendCmd = &cobra.Command{
 	Use:   "send",
 	Short: "向串口下发一条命令",
 	Long: "向串口下发一条命令（默认发本机 run --enable-write 写通道）。\n" +
-		"  示例：\n" +
-		"    logdiag send \"ls -al\"                        # 直接跟命令，空格自动拼成一个命令串\n" +
-		"    logdiag send \"AT+OPEN\\r\\n\"                  # 支持 \\r \\n \\t 转义\n" +
-		"    logdiag send --cmd \"echo hi\" arg1 arg2        # --cmd 与位置参数可同时用,结果为 \"echo hi arg1 arg2\"\n" +
-		"    logdiag send --port COM5 \"ls\"                  # 裸发:不经 run/agent,直接写本机串口(盲发,无回显)\n" +
+			"  示例：\n" +
+			"    serialcat send \"ls -al\"                        # 直接跟命令，空格自动拼成一个命令串\n" +
+			"    serialcat send \"AT+OPEN\\r\\n\"                  # 支持 \\r \\n \\t 转义\n" +
+			"    serialcat send --cmd \"echo hi\" arg1 arg2        # --cmd 与位置参数可同时用,结果为 \"echo hi arg1 arg2\"\n" +
+			"    serialcat send --port COM5 \"ls\"                # 裸发:不经 run/agent,直接写本机串口(盲发,无回显)\n" +
 		"  说明：默认自动补一个回车(\\r)触发设备执行；需精确字节时用 --raw。失败即报错并置非零退出码。",
 	Args: cobra.ArbitraryArgs,
 	RunE: runSend,

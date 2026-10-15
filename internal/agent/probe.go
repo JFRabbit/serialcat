@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"logdiag/pkg/serial"
+	"github.com/JFRabbit/serialcat/pkg/serial"
 )
 
 // 探测候选波特率：覆盖常见固件默认档位。

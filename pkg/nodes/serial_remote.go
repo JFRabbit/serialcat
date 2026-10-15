@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"logdiag/pkg/dag"
+	"github.com/JFRabbit/serialcat/pkg/dag"
 )
 
 // remoteFrame 对应远端 agent 流式下发的单条串口记录（NDJSON）。fields 与内部 agent 对齐。
@@ -19,7 +19,7 @@ type remoteFrame struct {
 	Text string    `json:"text"`
 }
 
-// SerialRemote 是 source 节点：从远端"logdiag agent"服务的 /api/stream 拉取串口行，
+// SerialRemote 是 source 节点：从远端"serialcat agent"服务的 /api/stream 拉取串口行，
 // 包装成 dag.Item 后按批发射，接入上游同一套批量 DAG。
 // 该节点纯 HTTP、跨平台，串口物理能力由 Windows 上的 agent 提供。
 type SerialRemote struct {

@@ -1,4 +1,4 @@
-module logdiag
+module github.com/JFRabbit/serialcat
 
 go 1.26.5
 

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"logdiag/pkg/config"
-	"logdiag/pkg/dag"
-	"logdiag/pkg/serial"
+	"github.com/JFRabbit/serialcat/pkg/config"
+	"github.com/JFRabbit/serialcat/pkg/dag"
+	"github.com/JFRabbit/serialcat/pkg/serial"
 )
 
 // Build 根据 Config 构造 dag.Graph。
@@ -86,8 +86,8 @@ func grepNode(c *map[string]any, id string) (dag.Node, error) {
 }
 
 func fileSink(c *map[string]any, id string) (dag.Node, error) {
-	// path 可省略：缺省落到运行目录下 logs/logdiag-sink-{ts}.log，免配置。
-	p := filepath.Join("logs", "logdiag-sink-{ts}.log")
+	// path 可省略：缺省落到运行目录下 logs/serialcat-sink-{ts}.log，免配置。
+	p := filepath.Join("logs", "serialcat-sink-{ts}.log")
 	if v, ok := (*c)["path"]; ok {
 		s, ok := v.(string)
 		if !ok {

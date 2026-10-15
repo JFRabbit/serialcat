@@ -1,6 +1,6 @@
 package main
 
-import "logdiag/cmd"
+import "github.com/JFRabbit/serialcat/cmd"
 
 func main() {
 	cmd.Execute()

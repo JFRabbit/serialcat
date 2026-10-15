@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"logdiag/pkg/dag"
+	"github.com/JFRabbit/serialcat/pkg/dag"
 )
 
 // drainOut 把 source 输出通道读到关闭为止，返回各批长度。

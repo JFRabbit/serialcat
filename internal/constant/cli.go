@@ -2,7 +2,7 @@
 package constant
 
 // AppName 应用名。
-const AppName = "logdiag"
+const AppName = "serialcat"
 
 // 默认值
 const (

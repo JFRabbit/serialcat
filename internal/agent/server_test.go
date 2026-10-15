@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"logdiag/pkg/serial"
+	"github.com/JFRabbit/serialcat/pkg/serial"
 )
 
 // capturePort：记录下行写入内容的内存端口。

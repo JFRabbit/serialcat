@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"logdiag/internal/constant"
+	"github.com/JFRabbit/serialcat/internal/constant"
 )
 
 // short 是 version 命令的短输出 flag。

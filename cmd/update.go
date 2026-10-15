@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"logdiag/internal/constant"
-	"logdiag/internal/logger"
-	"logdiag/internal/updater"
+	"github.com/JFRabbit/serialcat/internal/constant"
+	"github.com/JFRabbit/serialcat/internal/logger"
+	"github.com/JFRabbit/serialcat/internal/updater"
 
 	"github.com/spf13/cobra"
 )
@@ -96,7 +96,7 @@ func runUpdate(checkOnly, force, insecure bool) error {
 		return nil
 	}
 	if checkOnly {
-		logger.Info("发现新版本: %s (使用 logdiag update 进行更新)", info.Latest)
+		logger.Info("发现新版本: %s (使用 serialcat update 进行更新)", info.Latest)
 		fmt.Printf("发现新版本: %s\n", info.Latest)
 		return nil
 	}
@@ -139,7 +139,7 @@ func runUpdate(checkOnly, force, insecure bool) error {
 		logger.Info("更新已调度, 进程退出后将自动完成替换")
 		fmt.Println("更新已调度, 进程退出后将自动完成替换")
 	} else {
-		logger.Info("更新完成, 当前版本: %s, 请重新运行 logdiag", info.Latest)
+		logger.Info("更新完成, 当前版本: %s, 请重新运行 serialcat", info.Latest)
 		fmt.Printf("更新完成, 当前版本: %s\n", info.Latest)
 	}
 	return nil

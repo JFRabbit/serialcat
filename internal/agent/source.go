@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"logdiag/internal/logger"
+	"github.com/JFRabbit/serialcat/internal/logger"
 )
 
 // SerialSource 串口行源：后台单协程读串口，按行广播给订阅者。

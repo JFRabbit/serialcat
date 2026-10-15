@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"logdiag/internal/logger"
-	"logdiag/pkg/serial"
+	"github.com/JFRabbit/serialcat/internal/logger"
+	"github.com/JFRabbit/serialcat/pkg/serial"
 )
 
 // Options 是 agent serve 的启动选项，控制写接口暴露与本地落盘（默认开启）。
@@ -187,9 +187,9 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 }
 
 // startLocalLog 订阅串口帧流并写入本地落盘日志文件（默认开启）。
-// 文件名 logdiag-serial-{port}-{ts}.log，{ts} 展开为启动时间戳（复用既有约定）。
+// 文件名 serialcat-serial-{port}-{ts}.log，{ts} 展开为启动时间戳（复用既有约定）。
 func (s *Server) startLocalLog(ctx context.Context) {
-	name := fmt.Sprintf("logdiag-serial-%s-%s.log", s.port, time.Now().Format("20060102-150405"))
+	name := fmt.Sprintf("serialcat-serial-%s-%s.log", s.port, time.Now().Format("20060102-150405"))
 	if dir := s.opts.OutDir; dir != "" {
 		name = filepath.Join(dir, name)
 	}

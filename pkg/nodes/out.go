@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"logdiag/pkg/dag"
+	"github.com/JFRabbit/serialcat/pkg/dag"
 )
 
 // Grep 过滤节点：从 in 按批读取，逐条做正则判定，命中按批写 out。

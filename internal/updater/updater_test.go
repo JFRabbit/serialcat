@@ -114,7 +114,7 @@ func TestResolveURL(t *testing.T) {
 		{name: "baseURL尾部斜杠归一化", baseURL: "http://a/bucket/", path: "dist/x.exe", want: "http://a/bucket/dist/x.exe"},
 		{name: "path头部斜杠归一化", baseURL: "http://a/bucket", path: "/dist/x.exe", want: "http://a/bucket/dist/x.exe"},
 		{name: "两侧斜杠同时归一化", baseURL: "http://a/bucket/", path: "/dist/x.exe", want: "http://a/bucket/dist/x.exe"},
-		{name: "嵌套相对路径", baseURL: "http://a:9000/b", path: "app/v1/logdiag.exe", want: "http://a:9000/b/app/v1/logdiag.exe"},
+		{name: "嵌套相对路径", baseURL: "http://a:9000/b", path: "app/v1/serialcat.exe", want: "http://a:9000/b/app/v1/serialcat.exe"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

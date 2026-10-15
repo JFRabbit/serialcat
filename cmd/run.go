@@ -3,8 +3,8 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	"logdiag/internal/app"
-	"logdiag/internal/constant"
+	"github.com/JFRabbit/serialcat/internal/app"
+	"github.com/JFRabbit/serialcat/internal/constant"
 )
 
 // configFile 由 run/val 的局部 -f/--config flag 填充。

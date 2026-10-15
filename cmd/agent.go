@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"logdiag/internal/agent"
-	"logdiag/pkg/serial"
+	"github.com/JFRabbit/serialcat/internal/agent"
+	"github.com/JFRabbit/serialcat/pkg/serial"
 )
 
 // agentCmd 是 Windows 串口代理子命令（在带串口的 Windows 机器上运行）。
@@ -26,7 +26,7 @@ var agentServeCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "启动串口代理服务",
 	Long: "在插着串口这台机器上运行：自动连接串口（未指定时自动选择），并把串口数据通过网络提供给" +
-		"其它电脑的 logdiag 查看。\n" +
+		"其它电脑的 serialcat 查看。\n" +
 		"启动后会打印本机可访问地址；配合 --enable-write 可在对端下发命令。\n" +
 		"参数：--listen HTTP 监听地址(默认 :7100)；--port 串口名(如 COM5，不填自动选)；" +
 		"--baud 波特率(默认 115200)；--enable-write 开启下行写；--token 固定写令牌(不填则随机)；" +

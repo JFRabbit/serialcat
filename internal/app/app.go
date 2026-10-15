@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"logdiag/internal/logger"
-	"logdiag/pkg/config"
-	"logdiag/pkg/nodes"
+	"github.com/JFRabbit/serialcat/internal/logger"
+	"github.com/JFRabbit/serialcat/pkg/config"
+	"github.com/JFRabbit/serialcat/pkg/nodes"
 )
 
 // RunOptions 汇聚 run 的局部选项。

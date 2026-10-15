@@ -1,4 +1,4 @@
-# logdiag
+# serialcat
 
 > 轻量本地流式日志处理工具，单二进制 CLI。面向固件串口等常见日志处理场景。
 > 这套 `README.md` 面向**开发人员**讲项目架构与功能；**使用方式**见 [docs/usage.md](docs/usage.md)。
@@ -13,9 +13,9 @@
 ## 快速开始
 
 ```bash
-go build -o logdiag .
-./logdiag run -f examples/dev_grep.yaml   # 读文件筛日志
-./logdiag version
+go build -o serialcat .
+./serialcat run -f examples/dev_grep.yaml   # 读文件筛日志
+./serialcat version
 ```
 
 ## 目录结构
@@ -44,20 +44,20 @@ docs/              usage（使用）、roadmap（演进）、limitation（已知
   - `process:script` 为**子进程通信壳**：stdlib NDJSON over stdin/stdout，工具只做壳、不背脚本运行环境。
 - **配置校验**（`pkg/config`）：结构级（id 唯一、type 齐全、source 无 from、非 source 必有 from）+ 语义级（kind 合法、sink 不能作上游）+ **环检测**（Kahn 拓扑），`verify` 与每次 `run` 前都会执行。
 - **串口驱动下沉**到 `pkg/serial`（规避 pkg import internal 的 Go 规则）：仅 Windows 有物理实现，其它平台返回 unsupported。
-- **日志隔离**：工具自身日志写运行目录 `logs/logdiag.log`；console 节点输出独立走 stdout。
-- **自更新**：版本经 `-ldflags -X logdiag/cmd.Version=...` 注入，更新源前缀 `-X logdiag/cmd.DefaultUpdateURL=...`；`update` 从 `{baseURL}/logdiag/version.json` 拉取最新清单并按平台替换二进制。
+- **日志隔离**：工具自身日志写运行目录 `logs/serialcat.log`；console 节点输出独立走 stdout。
+- **自更新**：版本经 `-ldflags -X github.com/JFRabbit/serialcat/cmd.Version=...` 注入，更新源前缀 `-X github.com/JFRabbit/serialcat/cmd.DefaultUpdateURL=...`；`update` 从 `{baseURL}/serialcat/version.json` 拉取最新清单并按平台替换二进制。
 
 ## 关键命令
 
 | 命令 | 说明 |
 |---|---|
-| `logdiag run -f x.yaml` | 执行 DAG 配置流水 |
-| `logdiag verify -f x.yaml` | 校验配置拓扑 |
-| `logdiag version [--short]` | 打印版本 |
-| `logdiag update [--check]` | 检查/自更新 |
-| `logdiag agent serve ...` | Windows 串口代理 |
-| `logdiag agent probe [port]` | 枚举串口 / 探测波特率 |
-| `logdiag send ...` | 向串口下发命令 |
+| `serialcat run -f x.yaml` | 执行 DAG 配置流水 |
+| `serialcat verify -f x.yaml` | 校验配置拓扑 |
+| `serialcat version [--short]` | 打印版本 |
+| `serialcat update [--check]` | 检查/自更新 |
+| `serialcat agent serve ...` | Windows 串口代理 |
+| `serialcat agent probe [port]` | 枚举串口 / 探测波特率 |
+| `serialcat send ...` | 向串口下发命令 |
 
 ## CI / 发版
 
@@ -65,12 +65,12 @@ docs/              usage（使用）、roadmap（演进）、limitation（已知
 - 发版命令示例（本地）：
 
 ```bash
-go build -ldflags "-X logdiag/cmd.Version=1.0.0 -X logdiag/cmd.DefaultUpdateURL=http://ip/bucket" -o logdiag .
+go build -ldflags "-X github.com/JFRabbit/serialcat/cmd.Version=1.0.0 -X github.com/JFRabbit/serialcat/cmd.DefaultUpdateURL=http://ip/bucket" -o serialcat .
 ```
 
 ## License
 
-logdiag 以 **Apache License 2.0** 开源，见 [LICENSE](LICENSE)。版权归 **JFRabbit**（见 [NOTICE](NOTICE)）。
+serialcat 以 **Apache License 2.0** 开源，见 [LICENSE](LICENSE)。版权归 **JFRabbit**（见 [NOTICE](NOTICE)）。
 
 使用的第三方依赖及各自许可证见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)。
 

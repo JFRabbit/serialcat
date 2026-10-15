@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"logdiag/pkg/config"
+	"github.com/JFRabbit/serialcat/pkg/config"
 )
 
 // buildErr 构造含给定节点的配置并执行 Build，返回错误（预期非 nil）。

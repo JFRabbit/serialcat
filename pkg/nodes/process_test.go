@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"logdiag/pkg/dag"
+	"github.com/JFRabbit/serialcat/pkg/dag"
 )
 
 func TestBatchToFrameSlice_Empty(t *testing.T) {

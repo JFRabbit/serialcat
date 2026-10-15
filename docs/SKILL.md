@@ -1,20 +1,20 @@
 ---
-name: logdiag-agent
+name: serialcat-agent
 description: >-
-  通过 logdiag agent 的 HTTP 接口实时拉取串口日志(/api/stream)、回查历史
+  通过 serialcat agent 的 HTTP 接口实时拉取串口日志(/api/stream)、回查历史
   (/api/logs 分页+过滤+尾部快照)以及向串口设备下发命令(/api/write)。
   当 AI 需要读取某台插着串口设备的 Windows 机器上的日志、持续监控串口输出、
   或排查过去某段时间的串口数据时使用。
 ---
 
-# SKILL — 让 AI 通过 logdiag agent 访问串口日志
+# SKILL — 让 AI 通过 serialcat agent 访问串口日志
 
-> 这份文档是给 **AI 协作者 / code agent** 看的"怎么用 logdiag agent"。
+> 这份文档是给 **AI 协作者 / code agent** 看的"怎么用 serialcat agent"。
 > 面向使用/集成,不面向二次开发(架构看根 README.md)。
 
 ## 1. 是什么
 
-`logdiag` 是一个轻量本地日志工具。其中 **agent 模式**跑在一台**插着串口设备的 Windows 机器**上,
+`serialcat` 是一个轻量本地日志工具。其中 **agent 模式**跑在一台**插着串口设备的 Windows 机器**上,
 把串口数据通过网络暴露出来,让**另一端**(Mac / 另一台机器 / AI)通过 HTTP 拉取:
 
 - **实时看** → `/api/stream`(长连接流)
@@ -33,7 +33,7 @@ description: >-
 **重要边界**
 - agent 目前**仅 Windows 支持**(需真实串口);你所在的 mac/Linux 只能作为"消费端"拉取。
 - agent 会**自动选串口、端口被占自动 +1**;打印的本机可访问 IP 里挑可达的那个。
-- agent 默认把串口流**全量落盘**到本地 `logs/logdiag-serial-*.log`(逐行 flush、带毫秒时间戳)。
+- agent 默认把串口流**全量落盘**到本地 `logs/serialcat-serial-*.log`(逐行 flush、带毫秒时间戳)。
   历史接口 `/api/logs` 就是读这份落盘,你**不用关心文件名**,接口会帮你定位。
 
 ## 3. 探测与状态
@@ -143,7 +143,7 @@ curl -s -X POST \
 3. 要**排查过去一段时间**→ `/api/logs` + `after/until/filter` 分页拉,`while(hasMore)` 用 `next` 续读到完。
 4. 要**只关注报错**→ 加 `&filter=fail|error|assert` 先缩小量。
 5. 要**下发固件/调试命令**→ 确认 `--enable-write` 开了,拿 token,`POST /api/write`。
-6. 要把串口拉进 logdiag 自己的 DAG 处理 → 配置里用 `source:serial-remote` 节点(见 `docs/usage.md`)。
+6. 要把串口拉进 serialcat 自己的 DAG 处理 → 配置里用 `source:serial-remote` 节点(见 `docs/usage.md`)。
 
 ## 8. 常见坑
 
