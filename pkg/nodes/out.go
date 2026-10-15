@@ -14,8 +14,9 @@ import (
 	"github.com/JFRabbit/serialcat/pkg/dag"
 )
 
-// Grep 过滤节点：从 in 按批读取，逐条做正则判定，命中按批写 out。
-// 过滤不改变数据本质，只是"缩小"日志。
+// Grep is a filter node: reads batches from in, applies regex matching per item,
+// and writes hits to out in batches.
+// Filtering does not change the nature of the data; it only "narrows down" the logs.
 type Grep struct {
 	id  string
 	re  *regexp.Regexp
@@ -24,7 +25,7 @@ type Grep struct {
 
 var _ dag.ProcessNode = (*Grep)(nil)
 
-// NewGrep 构造过滤节点。pattern 编译为正则。
+// NewGrep builds a filter node. pattern is compiled as a regular expression.
 func NewGrep(id, pattern string, buf int) (*Grep, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
@@ -36,14 +37,14 @@ func NewGrep(id, pattern string, buf int) (*Grep, error) {
 	return &Grep{id: id, re: re, out: make(chan []dag.Item, buf)}, nil
 }
 
-// Name 实现 dag.Node。
+// Name implements dag.Node.
 func (n *Grep) Name() string { return n.id }
 
-// Out 实现 dag.ProcessNode。
+// Out implements dag.ProcessNode.
 func (n *Grep) Out() (chan []dag.Item, bool) { return n.out, true }
 
-// Run 从 in 读取并过滤。in 关闭即结束（上游 EOS），然后关闭 out。
-// 命中项重组为新批次发射，空批次跳过。
+// Run reads from in and filters. It ends when in closes (upstream EOS), then closes out.
+// Hits are regrouped into new batches and emitted; empty batches are skipped.
 func (n *Grep) Run(ctx context.Context, in <-chan []dag.Item) error {
 	for batch := range in {
 		out := make([]dag.Item, 0, len(batch))
@@ -65,7 +66,7 @@ func (n *Grep) Run(ctx context.Context, in <-chan []dag.Item) error {
 	return nil
 }
 
-// Console 是 sink 节点：从 in 读取并打印，无输出。
+// Console is a sink node: reads from in and prints, with no output.
 type Console struct {
 	id string
 	w  io.Writer
@@ -73,16 +74,16 @@ type Console struct {
 
 var _ dag.ProcessNode = (*Console)(nil)
 
-// NewConsole 构造控制台输出节点。
+// NewConsole builds a console output node.
 func NewConsole(id string) *Console { return &Console{id: id, w: os.Stdout} }
 
-// Name 实现 dag.Node。
+// Name implements dag.Node.
 func (n *Console) Name() string { return n.id }
 
-// Out 实现 dag.ProcessNode：sink 无输出。
+// Out implements dag.ProcessNode: sinks have no output.
 func (n *Console) Out() (chan []dag.Item, bool) { return nil, false }
 
-// Run 逐条打印。in 关闭即结束。
+// Run prints line by line. It ends when in closes.
 func (n *Console) Run(ctx context.Context, in <-chan []dag.Item) error {
 	if n.w == nil {
 		n.w = os.Stdout
@@ -102,36 +103,38 @@ func (n *Console) Run(ctx context.Context, in <-chan []dag.Item) error {
 	return nil
 }
 
-// FileSink 是落盘节点：从 in 读取，逐行写入文件，in 关闭时 flush。
-// path 支持 {ts} 模板：会在 Run 开始时展开为本次运行的起始时间戳
-// （格式 20060102-150405，本地时区），便于每次运行归档独立文件。
+// FileSink is a write-to-disk node: reads from in, writes lines to a file, flushes when in closes.
+// path supports the {ts} template: it expands at the start of Run to the run's start timestamp
+// (format 20060102-150405, local timezone), archiving each run into its own file.
 type FileSink struct {
 	id       string
-	pathTmpl string // 可能含 {ts} 的模板
+	pathTmpl string // template that may contain {ts}
 }
 
 var _ dag.ProcessNode = (*FileSink)(nil)
 
-// NewFileSink 构造落盘输出节点。
+// NewFileSink builds a write-to-disk output node.
 func NewFileSink(id, path string) *FileSink { return &FileSink{id: id, pathTmpl: path} }
 
-// Name 实现 dag.Node。
+// Name implements dag.Node.
 func (n *FileSink) Name() string { return n.id }
 
-// Out 实现 dag.ProcessNode：sink 无输出。
+// Out implements dag.ProcessNode: sinks have no output.
 func (n *FileSink) Out() (chan []dag.Item, bool) { return nil, false }
 
-// expandPath 将 pathTmpl 中的 {ts} 占位替换为本次运行时间戳。
+// expandPath replaces the {ts} placeholder in pathTmpl with the current run timestamp.
 func (n *FileSink) expandPath() string {
 	ts := time.Now().Format("20060102-150405")
 	return strings.ReplaceAll(n.pathTmpl, "{ts}", ts)
 }
 
-// Run 逐行写入并每行 flush（实时落盘，防止数据滞留在缓冲区导致中途丢失）。
-// 若目标文件在运行期被外部删除/移走，自动重建同名文件继续追加，保证不丢数据。
+// Run writes line by line and flushes per line (real-time disk write, preventing
+// data from being stranded in the buffer and lost mid-run).
+// If the target file is externally deleted/moved during the run, it automatically
+// recreates a same-named file and keeps appending, so no data is lost.
 func (n *FileSink) Run(ctx context.Context, in <-chan []dag.Item) error {
 	path := n.expandPath()
-	// 自动创建父目录，兼容目标路径不存在的场景。
+	// Automatically create parent directories, covering the case where the target path does not exist.
 	if dir := filepath.Dir(path); dir != "." && dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("mkdir %s: %w", dir, err)
@@ -152,14 +155,14 @@ func (n *FileSink) Run(ctx context.Context, in <-chan []dag.Item) error {
 				return ctx.Err()
 			default:
 			}
-			// 文件被外部删除/移走时，重建同名文件继续追加（与 agent 落盘一致）。
+			// When the file is externally deleted/moved, recreate a same-named file and keep appending (consistent with the agent's disk write).
 			if _, err := os.Stat(curPath); err != nil {
 				if nf, npath, e := recreateSinkFile(curPath); e == nil {
 					_ = w.Flush()
 					_ = f.Close()
 					f, w, curPath = nf, bufio.NewWriter(nf), npath
 				} else {
-					return fmt.Errorf("重建落盘文件 %s: %w", curPath, e)
+					return fmt.Errorf("recreate sink file %s: %w", curPath, e)
 				}
 			}
 			if _, err := w.WriteString(it.Text + "\n"); err != nil {
@@ -173,11 +176,12 @@ func (n *FileSink) Run(ctx context.Context, in <-chan []dag.Item) error {
 	return nil
 }
 
-// recreateSinkFile 在落盘文件被删除后重建：优先同名；同名创建失败（如被目录占用）则自动递增后缀。
+// recreateSinkFile recreates the sink file after it has been deleted: same name first;
+// if creating the same name fails (e.g. occupied by a directory), an incrementing suffix is appended.
 func recreateSinkFile(name string) (*os.File, string, error) {
 	if dir := filepath.Dir(name); dir != "." && dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, "", fmt.Errorf("重建目录 %s: %w", dir, err)
+			return nil, "", fmt.Errorf("recreate directory %s: %w", dir, err)
 		}
 	}
 	if f, err := os.Create(name); err == nil {
@@ -191,5 +195,5 @@ func recreateSinkFile(name string) (*os.File, string, error) {
 			return f, alt, nil
 		}
 	}
-	return nil, "", fmt.Errorf("无法重建落盘文件（同名及 1000 个后缀均失败）: %s", name)
+	return nil, "", fmt.Errorf("cannot recreate sink file (same name and 1000 suffixes all failed): %s", name)
 }

@@ -1,10 +1,10 @@
-// Package agent 实现 Windows 上运行的串口代理：对接串口并经 HTTP 暴露枚举/实时流/下行能力。
-// 该子命令应在 Windows 上运行（串口物理存在），serialcat 主进程作为 DAG 引擎跨平台纯 HTTP 拉取。
+// Package agent implements the serial port agent running on Windows: connects to the serial port and exposes enumeration, real-time streaming, and write capabilities over HTTP.
+// This subcommand is meant to run on Windows (where the serial port physically exists); the serialcat main process pulls over plain HTTP as a cross-platform DAG engine.
 package agent
 
 import "time"
 
-// Frame 是经 HTTP /api/stream 传递的单条串口记录（NDJSON）。
+// Frame is a single serial record delivered over HTTP /api/stream (NDJSON).
 type Frame struct {
 	Ts   time.Time `json:"ts"`
 	Text string    `json:"text"`

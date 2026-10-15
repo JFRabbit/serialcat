@@ -9,8 +9,8 @@ import (
 	"github.com/JFRabbit/serialcat/pkg/serial"
 )
 
-// Build 根据 Config 构造 dag.Graph。
-// 目前支持：source:file · filter:grep · sink:console/file。
+// Build constructs a dag.Graph from a Config.
+// Currently supported: source:file · filter:grep · sink:console/file.
 func Build(cfg *config.Config) (*dag.Graph, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -49,18 +49,18 @@ func buildNode(nc *config.NodeConfig) (dag.Node, error) {
 	case "sink:file":
 		return fileSink(&nc.Conf, nc.ID)
 	default:
-		return nil, fmt.Errorf("不支持的节点类型 %s/%s", nc.Kind, nc.Type)
+		return nil, fmt.Errorf("unsupported node type %s/%s", nc.Kind, nc.Type)
 	}
 }
 
 func strConf(c map[string]any, k string) (string, error) {
 	v, ok := c[k]
 	if !ok {
-		return "", fmt.Errorf("缺少配置项 %s", k)
+		return "", fmt.Errorf("missing config key %s", k)
 	}
 	s, ok := v.(string)
 	if !ok {
-		return "", fmt.Errorf("配置项 %s 应为字符串", k)
+		return "", fmt.Errorf("config key %s must be a string", k)
 	}
 	return s, nil
 }
@@ -80,18 +80,18 @@ func grepNode(c *map[string]any, id string) (dag.Node, error) {
 	}
 	g, err := NewGrep(id, p, 0)
 	if err != nil {
-		return nil, fmt.Errorf("match 编译失败: %w", err)
+		return nil, fmt.Errorf("failed to compile match: %w", err)
 	}
 	return g, nil
 }
 
 func fileSink(c *map[string]any, id string) (dag.Node, error) {
-	// path 可省略：缺省落到运行目录下 logs/serialcat-sink-{ts}.log，免配置。
+	// path is optional: defaults to logs/serialcat-sink-{ts}.log under the run directory, no config needed.
 	p := filepath.Join("logs", "serialcat-sink-{ts}.log")
 	if v, ok := (*c)["path"]; ok {
 		s, ok := v.(string)
 		if !ok {
-			return nil, fmt.Errorf("配置项 path 应为字符串")
+			return nil, fmt.Errorf("config key path must be a string")
 		}
 		if s != "" {
 			p = s
@@ -113,17 +113,18 @@ func localSerial(c *map[string]any, id string) (dag.Node, error) {
 	if v, ok := (*c)["baud"]; ok {
 		b, ok := v.(int)
 		if !ok {
-			return nil, fmt.Errorf("配置项 baud 应为整数")
+			return nil, fmt.Errorf("config key baud must be an integer")
 		}
 		baud = b
 	}
 
-	// port 可省略：缺省时自动探测并选择串口。多个可选串口时无法决定，明确报错提示，避免误连。
+	// port is optional: when omitted, auto-detect and select the serial port.
+	// With multiple candidate ports there is no way to decide, so report a clear error to avoid connecting to the wrong one.
 	port := ""
 	if v, ok := (*c)["port"]; ok {
 		s, ok := v.(string)
 		if !ok {
-			return nil, fmt.Errorf("配置项 port 应为字符串")
+			return nil, fmt.Errorf("config key port must be a string")
 		}
 		port = s
 	}
@@ -134,22 +135,22 @@ func localSerial(c *map[string]any, id string) (dag.Node, error) {
 		}
 		ports, err := drv.ListPorts()
 		if err != nil {
-			return nil, fmt.Errorf("自动探测串口失败: %w", err)
+			return nil, fmt.Errorf("failed to auto-detect serial port: %w", err)
 		}
 		switch len(ports) {
 		case 0:
-			return nil, fmt.Errorf("未探测到可用串口，请在配置中通过 port 明确指定")
+			return nil, fmt.Errorf("no serial port detected, specify port explicitly in config")
 		case 1:
 			port = ports[0]
 		default:
-			return nil, fmt.Errorf("探测到多个可用串口 %v，无法自动选择，请在配置中通过 port 明确指定", ports)
+			return nil, fmt.Errorf("multiple serial ports detected %v, cannot auto-select, specify port explicitly in config", ports)
 		}
 	}
 
 	return NewLocalSerial(id, port, baud, 0), nil
 }
 
-// processNode 构造 process:script 节点。command 必填，args 可省略。
+// processNode builds a process:script node. command is required, args is optional.
 func processNode(c *map[string]any, id string) (dag.Node, error) {
 	cmd, err := strConf(*c, "command")
 	if err != nil {
@@ -159,12 +160,12 @@ func processNode(c *map[string]any, id string) (dag.Node, error) {
 	if v, ok := (*c)["args"]; ok {
 		list, ok := v.([]any)
 		if !ok {
-			return nil, fmt.Errorf("配置项 args 应为字符串数组")
+			return nil, fmt.Errorf("config key args must be a string array")
 		}
 		for _, a := range list {
 			s, ok := a.(string)
 			if !ok {
-				return nil, fmt.Errorf("配置项 args 的每个元素应为字符串")
+				return nil, fmt.Errorf("each element of config key args must be a string")
 			}
 			args = append(args, s)
 		}

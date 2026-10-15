@@ -1,24 +1,24 @@
-# design v2 — 轻量本地流式日志处理工具
+# design v2 — Lightweight Local Streaming Log Processing Tool
 
-> 定位：**轻量、本地运行的日志处理工具**。面向常见日志处理（固件串口是主要场景之一）。
-> 参照系是 ripgrep / jq 这类 Unix 管道工具，不是 DolphinScheduler / Flink 等分布式平台。
+> Positioning: a **lightweight, locally-run log processing tool**. Aimed at common log processing (firmware serial is one of the primary scenarios).
+> The frame of reference is Unix pipeline tools like ripgrep / jq, not distributed platforms like DolphinScheduler / Flink.
 >
-> 价值主线：
-> 1. **解决人肉看日志**——实时过滤、跨网络转发串口日志，是最高频、最实用的日常能力。
-> 2. **给 code agent / AI 提供日志通道**——把串口日志做成结构化、跨网络、实时且可回溯（落盘 + 历史补拉）的访问源；AI 消费为指数复用，回报倍率最高。
+> Value propositions:
+> 1. **Solve human log-watching** — real-time filtering and cross-network forwarding of serial logs is the most frequent, most practical daily capability.
+> 2. **Give code agents / AI a log channel** — turn serial logs into a structured, cross-network, real-time and replayable (persist to disk + backfill history) access source; AI consumption compounds exponentially, offering the highest return multiplier.
 >
-> 由此推论：**数据通道的价值 > 界面价值**。因此 UI 从简（不做重前端体系），优先把协议与数据形态做规整、可被程序与 AI 稳定消费。
+> Corollary: **the value of the data channel > the value of the UI**. Hence the UI stays minimal (no heavy frontend ecosystem), prioritizing a well-formed protocol and data shape that programs and AI can consume reliably.
 
 ---
 
-## 1. 核心模型：DAG
+## 1. Core Model: DAG
 
-工具是一根**数据管道（有向无环图）**，只有两类东西：
+The tool is a **data pipeline (directed acyclic graph)** with only two kinds of things:
 
-- **source**：无入边的节点，数据来源（文件 / 串口 / stdin / 网络）。
-- **node**：其余一切节点，是处理/输出单元。
+- **source**: nodes with no incoming edges; data origins (file / serial / stdin / network).
+- **node**: everything else; processing/output units.
 
-数据在边上传送，统一为 **Item** 流。节点通过 `from` 连接（`from` 即边）。
+Data flows over edges, unified as an **Item** stream. Nodes connect via `from` (`from` is the edge).
 
 ```
 file ─▶ grep ─▶ console
@@ -26,119 +26,119 @@ file ─▶ grep ─▶ console
         └──▶ script ─▶ alert
 ```
 
-### 流语义
+### Stream semantics
 
-- Item 是一条记录（原始行），不可再细。
-- **EOS（结束）**：有终点的流（文件 EOF）广播结束，各节点 `Flush` 吐汇总；无终点的流（串口）靠窗口/超时自行收尾。
-- **扇出**：一个输出接多个下游，引擎复制 Item。
-- **背压**：每条边有界队列 + 溢出策略（drop/block），避免一个慢分支拖垮全图。
+- An Item is one record (a raw line), not further divisible.
+- **EOS (end)**: streams with an endpoint (file EOF) broadcast completion, and each node `Flush`es its summary; streams without an endpoint (serial) wind down via windows/timeouts.
+- **Fan-out**: one output feeding multiple downstream nodes; the engine copies Items.
+- **Backpressure**: each edge has a bounded queue + overflow policy (drop/block), so a slow branch cannot stall the whole graph.
 
 ---
 
-## 2. 节点分类（按业务）
+## 2. Node Classification (by function)
 
-| 分类 | 例子 | 说明 |
+| Category | Examples | Description |
 |---|---|---|
-| 输入 source | file / serial / stdin / network | 产生 Item 流 |
-| 过滤 filter | grep / level / time-range | **缩小日志**，不改变数据本质，最常用 |
-| 加工 process | extract / script / state / agg | 原文 → 结构化/派生数据 |
-| 分析 analysis | LLM | 语义归因，慢且贵，需前级已过滤 |
-| 判定 rule | alert | 按规则（窗口/阈值）触发通知 |
-| 输出 sink | console / file / webhook / store | 消费 Item 的落点 |
+| Input source | file / serial / stdin / network | Produce an Item stream |
+| Filter filter | grep / level / time-range | **Reduce the log**, without changing data essence; most common |
+| Process process | extract / script / state / agg | Raw text → structured/derived data |
+| Analysis analysis | LLM | Semantic attribution; slow and expensive, requires upstream filtering |
+| Rule rule | alert | Trigger notifications by rules (window/threshold) |
+| Output sink | console / file / webhook / store | The destination that consumes Items |
 
-> 示例链路：`serial → grep(缩小) → extract(抽字段) → alert(规则) → 通知`
+> Example chain: `serial → grep (reduce) → extract (extract fields) → alert (rule) → notify`
 
 ---
 
-## 3. 配置：Config 模型为唯一权威
+## 3. Config: The Config Model Is the Single Source of Truth
 
-- 定义一个独立的 **`Config`（Go struct）** 作为唯一权威。
-- **YAML（当前入口）** 和未来的 **WebUI（表单）** 都只是映射到同一个 `Config` 的两个入口。
-- 因此"YAML → WebUI"不是重写，只是加一个入口，引擎与配置模型不变。
+- Define an independent **`Config` (Go struct)** as the single source of truth.
+- **YAML (the current entry point)** and a future **WebUI (forms)** are just two entry points mapping onto the same `Config`.
+- Therefore "YAML → WebUI" is not a rewrite; it only adds an entry point, and the engine and config model stay unchanged.
 
-M 配置形态：
+Example config shape:
 
 ```yaml
 graph:
-  - id: serial        # 1. source（实时串口）
+  - id: serial        # 1. source (real-time serial)
     kind: source
     type: serial
     port: /dev/ttyUSB0
     baud: 115200
 
-  - id: g             # 2. filter（缩小日志）
+  - id: g             # 2. filter (reduce the log)
     kind: filter
     type: grep
     match: "MEM|alloc|free"
     from: serial
 
-  - id: s             # 3. process（外部脚本加工）
+  - id: s             # 3. process (external script processing)
     kind: process
     type: script
     cmd: python3 ./mem_check.py
-    runtime: python3>=3.8   # 提示用，不强制/自动装
+    runtime: python3>=3.8   # advisory only; not enforced/auto-installed
     from: g
 
-  - id: out           # 4. sink（输出）
+  - id: out           # 4. sink (output)
     kind: sink
     type: console
     from: s
 ```
 
-边 = `from` 字段；同一 id 可被多个下游引用（扇出）。
+Edges = the `from` field; the same id can be referenced by multiple downstream nodes (fan-out).
 
 ---
 
-## 4. 架构分层（WebUI 只是未来新 driver）
+## 4. Architecture Layers (the WebUI is just a future new driver)
 
-| 层 | 职责 | 跨版本不变 |
+| Layer | Responsibility | Stable across versions |
 |---|---|---|
-| Config | 唯一权威配置模型 | ✅ |
-| 编排格式 | YAML（本版）/ 未来 WebUI | 执行入口之一 |
-| DAG 引擎 | `pkg/dag` 独立库 | ✅ 复用在任何 driver |
-| 插件 | grep/script/alert 等 | ✅ |
-| 前端 | CLI 打印（本版）→ Vue 3（未来） | 新增层 |
+| Config | The single authoritative config model | ✅ |
+| Orchestration format | YAML (this version) / future WebUI | One of the execution entry points |
+| DAG engine | Independent library `pkg/dag` | ✅ Reused by any driver |
+| Plugins | grep/script/alert, etc. | ✅ |
+| Frontend | CLI printing (this version) → Vue 3 (future) | New layer |
 
-- **CLI 与服务只是同一 dag 库的两个 driver**：`run`（一次性批处理）/ `serve`（未来常驻 + WebUI 连接）。MVP 只做 `run`。
-- 保持轻量：进程内 goroutine + channel，**不引入任何服务框架/RPC/分布式**。
-
----
-
-## 5. 内置 vs 外部（权责划分）
-
-**判别标准：工具是否需提供/维护运行时。**
-
-- **能内置实现的 → 内置**（单二进制即用，零额外环境）：file/stdin/serial、grep/extract/agg/alert、console/file。编译进 Go 二进制。
-- **要任意语言自由逻辑 → 外部 `script`**：工具只做**子进程通信壳**（spawn 进程、stdin 传 JSON Lines Item、读 stdout 结果）。运行时（python 等）由**执行机器自装**，工具只做友好的可用性提示，**不内置也不自动安装**。
-
-> 原则：工具当壳，不背环境。常见功能内置（轻量即时用），冷门逻辑靠外部逃生舱（用户自担环境）。
+- **CLI and server are just two drivers of the same dag library**: `run` (one-shot batch processing) / `serve` (future resident + WebUI connection). MVP only implements `run`.
+- Keep it lightweight: in-process goroutine + channel; **no service frameworks / RPC / distributed systems**.
 
 ---
 
-## 6. 技术栈
+## 5. Built-in vs. External (division of responsibilities)
 
-- **语言**：Go。单二进制、跨平台、`embed` 可打包前端。
-- **LLM**：HTTP 调 OpenAI 兼容接口，不绑 SDK。LLM 仅是**一个 node 插件**，非核心，后期实现。
-- **WebUI**：Vue 3（以后版）。后端 `net/http` + `embed`，实时推送（WebSocket/SSE）以后定。
-- **MVP 最小节点**：`source: file/stdin` + `filter: grep` + `sink: console/file`。
+**Criterion: does the tool need to provide/maintain a runtime?**
 
----
+- **What can be built in → built in** (single binary, ready to use, zero extra environment): file/stdin/serial, grep/extract/agg/alert, console/file. Compiled into the Go binary.
+- **Arbitrary-language free logic → external `script`**: the tool only acts as a **subprocess communication shell** (spawn the process, pass JSON Lines Items via stdin, read stdout results). Runtimes (Python, etc.) are **installed by the executing machine itself**; the tool only gives friendly availability hints and **neither bundles nor auto-installs** them.
 
-## 7. MVP 验收（第一个示例）
-
-跑通 `file → grep → console/file`，验证三件事：
-
-1. **EOS**：文件读完，各节点 Flush。
-2. **扇出**：同一源可接多下游。
-3. **背压**：慢下游不阻塞其它分支。
-
-串口、script、alert、store、LLM 均作为 node 后续逐步加入。
+> Principle: the tool is a shell, not a runtime host. Common functionality is built in (lightweight, instant use); niche logic relies on an external escape hatch (users bring their own environment).
 
 ---
 
-## 附：Anti-Goals（不做的事）
+## 6. Tech Stack
 
-- 不做分布式 / 常驻服务框架 / RPC（保持轻量本地）。
-- 不做脚本运行时环境安装（Python 等由用户系统提供）。
-- 不做面向多租户共享的调度平台（非 DolphinScheduler）。
-- LLM 不参与告警判定，只做归因分析。
+- **Language**: Go. Single binary, cross-platform, `embed` can bundle the frontend.
+- **LLM**: HTTP calls to an OpenAI-compatible interface, no SDK binding. LLM is only **one node plugin**, not core, implemented later.
+- **WebUI**: Vue 3 (future version). Backend `net/http` + `embed`; real-time push (WebSocket/SSE) to be decided later.
+- **MVP minimal nodes**: `source: file/stdin` + `filter: grep` + `sink: console/file`.
+
+---
+
+## 7. MVP Acceptance (first example)
+
+Run `file → grep → console/file` and verify three things:
+
+1. **EOS**: when the file is fully read, each node Flushes.
+2. **Fan-out**: the same source can feed multiple downstream nodes.
+3. **Backpressure**: a slow downstream does not block other branches.
+
+Serial, script, alert, store, and LLM will be added progressively as nodes.
+
+---
+
+## Appendix: Anti-Goals (things not done)
+
+- No distributed / resident service framework / RPC (keep it lightweight and local).
+- No script runtime environment installation (Python, etc. provided by the user's system).
+- No multi-tenant shared scheduling platform (not DolphinScheduler).
+- LLM does not participate in alert decisions; it only does attribution analysis.

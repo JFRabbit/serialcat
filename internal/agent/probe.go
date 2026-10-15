@@ -8,16 +8,16 @@ import (
 	"github.com/JFRabbit/serialcat/pkg/serial"
 )
 
-// 探测候选波特率：覆盖常见固件默认档位。
+// Candidate baud rates to probe: covers common firmware default rates.
 var probeBaunds = []int{9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600}
 
-// 单档波特率采样时长与最大读取量。
+// Sample window and max read size for a single baud rate.
 const (
 	sampleWindow = 300 * time.Millisecond
 	maxRead      = 16 * 1024
 )
 
-// ProbeResult 单档波特率的探测结果。
+// ProbeResult is the probe result for a single baud rate.
 type ProbeResult struct {
 	Baud        int     `json:"baud"`
 	Bytes       int     `json:"bytes"`
@@ -27,14 +27,15 @@ type ProbeResult struct {
 	Recommended bool    `json:"recommended"`
 }
 
-// Probe 对指定端口扫常见波特率，返回按推荐度排序的结果。
-// 启发式：固件日志多含可打印 ASCII，可打印字符占比越高、出现换行越多，越可能是正确波特率。
+// Probe scans common baud rates for the given port and returns results sorted by recommendation.
+// Heuristic: firmware logs usually contain printable ASCII; the higher the printable ratio and the
+// more newlines, the more likely the baud rate is correct.
 func Probe(drv serial.Driver, port string) ([]ProbeResult, error) {
 	results := make([]ProbeResult, 0, len(probeBaunds))
 	for _, baud := range probeBaunds {
 		results = append(results, probeOne(drv, port, baud))
 	}
-	// 排序：可打印占比高且换行多者优先。
+	// Sort: higher printable ratio and more newlines rank first.
 	sort.SliceStable(results, func(i, j int) bool {
 		return score(results[i]) > score(results[j])
 	})
@@ -48,19 +49,19 @@ func score(r ProbeResult) float64 {
 	return r.Printable*1000 + float64(r.Newlines)*10
 }
 
-// probeOne 在指定波特率下采样一小段窗口并打分。
+// probeOne samples a short window at the given baud rate and scores it.
 func probeOne(drv serial.Driver, port string, baud int) ProbeResult {
 	res := ProbeResult{Baud: baud}
 	p, err := drv.Open(port, baud)
 	if err != nil {
-		return res // 打开失败记 0 分，仍保留以便上层判断
+		return res // on open failure, keep the result with score 0 for the caller to judge
 	}
 	defer p.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), sampleWindow)
 	defer cancel()
 
-	// 读线程：反复读取并以 channel 交还主循环，避免阻塞 select。
+	// Reader goroutine: keeps reading and hands data back via the channel to avoid blocking select.
 	ch := make(chan []byte, 4)
 	go readLoop(p, ch)
 
@@ -97,7 +98,7 @@ loop:
 	return res
 }
 
-// readLoop 持续读取串口并把数据放入 ch，串口关闭后自然退出（向关闭 channel 发送会被忽略？——见下）。
+// readLoop keeps reading the serial port and puts data into ch, exiting naturally after the port closes (sends to a closed channel are ignored? — see below).
 func readLoop(p interface {
 	Read([]byte) (int, error)
 	Close() error
@@ -110,16 +111,16 @@ func readLoop(p interface {
 			copy(copied, buf[:n])
 			select {
 			case ch <- copied:
-			default: // 主循环已停止（超时）则丢弃，避免本协程阻塞泄漏
+			default: // drop when the main loop has stopped (timeout) to avoid leaking this goroutine
 			}
 		}
 		if err != nil {
-			return // 串口关闭(Close)后 Read 返回错误而退出
+			return // after the port is closed, Read returns an error and we exit
 		}
 	}
 }
 
-// sampleText 转成可展示的文本片段（截断，控制字符变占位）。
+// sampleText converts bytes into a displayable text snippet (truncated, control characters turned into placeholders).
 func sampleText(b []byte) string {
 	const max = 256
 	runes := make([]rune, 0, max)

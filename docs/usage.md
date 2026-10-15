@@ -1,25 +1,25 @@
-# serialcat 使用指南
+# serialcat Usage Guide
 
-> 面向**使用用户**。这里讲"怎么用"，不深入技术细节；想看架构与内部设计见根目录 `README.md`。
+> For **end users**. This covers "how to use" without diving into technical details; for architecture and internal design see the root `README.md`.
 
-serialcat 是一个轻量的本地日志处理工具。最常见的几个用途：
+serialcat is a lightweight local log processing tool. The most common use cases:
 
-- 实时看**串口日志**（尤其嵌入式设备的 `serialcat agent` 串口流，支持远程查看）。
-- 从大日志里**筛出关心的行**，打印或存文件。
-- 向串口设备**下发命令**，把设备的串口想成"远程可操作的终端"。
-- 给 code agent / AI 提供**日志访问通道**：串口日志可跨网络拉取、实时且可回溯，方便工具与 AI 稳定地消费日志。
+- Watch **serial port logs** in real time (especially the `serialcat agent` serial stream from embedded devices, viewable remotely).
+- **Filter lines of interest** out of large logs, then print or save them to a file.
+- **Send commands** to a serial device, treating the device's serial port as a "remotely operable terminal".
+- Provide a **log access channel for code agents / AI**: serial logs can be pulled across the network, in real time and replayable, so tools and AI can consume logs reliably.
 
 ---
 
-## 1. 安装
+## 1. Installation
 
-到发布目录下载对应的二进制放到一起即可。命令名：**`serialcat`**。
+Download the binary matching your platform from the release page and put it in place. The command name is **`serialcat`**.
 
-不同平台/架构对应不同的文件，例如 Windows 用 `serialcat.exe`，macOS（Intel）用 `serialcat`（darwin/amd64）。
+Different platforms/architectures map to different files; e.g. Windows uses `serialcat.exe`, macOS (Intel) uses `serialcat` (darwin/amd64).
 
-> 说明：serialcat 本身在 Windows/macOS/Linux 都能运行查看远端串口；但"直接连本机串口"的能力（`agent` 与本地写）**目前仅限 Windows**。
+> Note: serialcat itself runs on Windows/macOS/Linux for viewing remote serial logs; however, the ability to **connect a local serial port directly** (`agent` and local writes) is **currently Windows-only**.
 
-验证安装：
+Verify the installation:
 
 ```bash
 serialcat version
@@ -27,24 +27,24 @@ serialcat version
 
 ---
 
-## 2. 核心概念：配置文件（YAML）
+## 2. Core Concept: Config File (YAML)
 
-serialcat 按"一条日志流水怎么走"来工作，这个流水叫 **DAG**，写在一个 YAML 文件里，用 `-f` 指定：
+serialcat works around "how a log pipeline flows". This pipeline is called a **DAG** and is written in a YAML file, specified with `-f`:
 
 ```bash
-serialcat run -f 你的配置.yaml
+serialcat run -f your-config.yaml
 ```
 
-一个配置描述了几种"节点"和它们之间的连接关系：
+A config describes several kinds of "nodes" and the connections between them:
 
-| 名词 | 作用 | 例子 |
+| Term | Role | Example |
 |---|---|---|
-| source | 日志**从哪里来** | 读文件 / 拉串口流 / 连本机串口 |
-| filter | 按规则**筛掉**不关心的行 | grep 正则过滤 |
-| process | 交给**外部脚本**加工 | 插件 |
-| sink | 日志**到哪里去** | 打印到屏幕 / 写入文件 |
+| source | **Where** the logs **come from** | read a file / pull a serial stream / connect a local serial port |
+| filter | **Filter out** lines you don't care about by rules | grep regex filtering |
+| process | Hand off to an **external script** for processing | plugin |
+| sink | **Where** the logs **go** | print to screen / write to file |
 
-一个最简单的例子 `file → console`（读文件并打印）：
+The simplest example `file → console` (read a file and print it):
 
 ```yaml
 graph:
@@ -59,17 +59,17 @@ graph:
     from: [src]
 ```
 
-要点：
+Key points:
 
-- `id` 是节点名字，自己起，图里唯一。
-- `from: [...]` 表示"这个节点吃谁的输出"。sink 一定要有 `from`。
-- 一个节点可以被多个下游引用（比如同一个日志既打印又存盘）。
+- `id` is the node name; you choose it, and it must be unique within the graph.
+- `from: [...]` means "this node consumes whose output". A sink must have `from`.
+- A node can be referenced by multiple downstream nodes (e.g. the same log both printed and persisted to disk).
 
 ---
 
-## 3. 常用场景
+## 3. Common Scenarios
 
-### 3.1 从大日志里筛关键词
+### 3.1 Filter keywords from a large log
 
 ```yaml
 graph:
@@ -81,7 +81,7 @@ graph:
   - id: err
     kind: filter
     type: grep
-    match: "fail|null|error"      # 正则，命中才往下走
+    match: "fail|null|error"      # regex; only matching lines flow on
     from: [src]
 
   - id: out
@@ -90,33 +90,33 @@ graph:
     from: [err]
 ```
 
-先校验配置无误再跑：
+Verify the config before running:
 
 ```bash
-serialcat verify -f big_log.yaml    # 只看配置对不对
-serialcat run -f big_log.yaml       # 跑起来
+serialcat verify -f big_log.yaml    # only checks whether the config is valid
+serialcat run -f big_log.yaml       # run it
 ```
 
-> `verify` 只做检查不执行，建议改完配置先 verify 一遍。
+> `verify` only checks without executing; it's recommended to run `verify` after every config change.
 
-### 3.2 看远端串口日志（最常用）
+### 3.2 Watch a remote serial log (most common)
 
-串口物理插在 **Windows** 机器上，先在那跑 agent（波特率默认 115200、HTTP 默认 `:7100`，不传即可）：
+The serial port is physically attached to a **Windows** machine. First run the agent there (baud rate defaults to 115200, HTTP defaults to `:7100` — no need to pass them):
 
 ```bash
 serialcat agent serve
 ```
 
-启动后它会打印本机可访问的地址（形如 `http://192.168.1.x:7100`），记下来。若 7100 被占用会自动 +1 递增端口。
+After startup it prints the addresses reachable from this machine (e.g. `http://192.168.1.x:7100`); note it down. If 7100 is occupied, the port is automatically incremented by +1.
 
-回到看日志的电脑，配置里用 `serial-remote` 节点去拉：
+Back on the machine where you want to watch the logs, pull the stream with a `serial-remote` node:
 
 ```yaml
 graph:
   - id: ser
     kind: source
     type: serial-remote
-    url: "http://192.168.1.x:7100"   # agent 打印的地址
+    url: "http://192.168.1.x:7100"   # the address printed by the agent
 
   - id: out
     kind: sink
@@ -124,26 +124,26 @@ graph:
     from: [ser]
 ```
 
-然后：
+Then:
 
 ```bash
 serialcat run -f serial.yaml
 ```
 
-串口日志就会实时刷到屏幕上。断线会自动重连并有"断档"提示。
+The serial log streams to the screen in real time. On disconnect it auto-reconnects and shows a "gap" notice.
 
-> 想在 agent 那台机器自己也留一份日志？agent 默认就落盘到运行目录 `logs/`，无需配置。
+> Want to keep a copy of the log on the agent machine itself? The agent persists the full stream to `logs/` in its working directory by default — no config needed.
 
-### 3.3 向串口设备下发命令
+### 3.3 Send commands to a serial device
 
-有**两种**方式，取决于串口被谁占用。
+There are **two** ways, depending on who holds the serial port.
 
-**方式 A（推荐，能看设备回显）**：串口由 `run`/`agent` 持有，serialcat 通过 HTTP 通道下发命令，设备的回显会沿登录流返回。
+**Method A (recommended; you can see the device echo)**: the port is held by `run`/`agent`, serialcat sends commands over the HTTP channel, and the device's echo comes back along the log stream.
 
-- 持有着开启写通道：
-  - agent：`agent serve --enable-write`（会打印一个 token）
-  - 本地：`serialcat run --enable-write -f 配置.yaml`
-- 下发命令（默认发本机写通道 `127.0.0.1:7100`；写远程就加 `--url` 和 `--token`）：
+- The holder enables the write channel:
+  - agent: `agent serve --enable-write` (prints a token)
+  - local: `serialcat run --enable-write -f config.yaml`
+- Send commands (defaults to the local write channel `127.0.0.1:7100`; add `--url` and `--token` to write remotely):
 
 ```bash
 serialcat send "ls -al"
@@ -151,39 +151,39 @@ serialcat send "AT+OPEN"
 serialcat send --url http://192.168.1.x:7100 --token <token> "reboot"
 ```
 
-**方式 B（裸发）**：串口空闲独占时，直接指定本机串口盲发，发完即退、看不到回显：
+**Method B (blind send)**: when the port is free and held exclusively, send directly to a local serial port; it exits right after sending and you cannot see the echo:
 
 ```bash
 serialcat send --port COM5 "ls"
-serialcat send --port COM5 --cmd "echo hi" arg1     # --cmd 与位置参数会拼接
+serialcat send --port COM5 --cmd "echo hi" arg1     # --cmd and positional args are concatenated
 ```
 
-> 细节：命令默认会自动补一个回车 `\r` 触发执行；末尾已带 `\r`/`\n` 则不重复补。想精确发字节用 `--raw`。
+> Details: by default the command gets a trailing carriage return `\r` appended to trigger execution; if it already ends with `\r`/`\n`, no extra one is added. Use `--raw` to send exact bytes.
 
 ---
 
-## 4. 其余命令一览
+## 4. Other Commands at a Glance
 
-| 命令 | 用途 |
+| Command | Purpose |
 |---|---|
-| `serialcat run -f x.yaml` | 执行一套 DAG 配置流水 |
-| `serialcat verify -f x.yaml` | 只校验配置是否正确，不运行 |
-| `serialcat version [--short]` | 打印版本号 |
-| `serialcat update [--check]` | 检查并更新到最新版本 |
-| `serialcat agent serve ...` | 在 Windows 开串口代理 |
-| `serialcat agent probe [port]` | 列出本机串口 / 探测波特率 |
-| `serialcat send ...` | 向串口下发一条命令 |
+| `serialcat run -f x.yaml` | Execute a DAG config pipeline |
+| `serialcat verify -f x.yaml` | Only validate the config, do not run |
+| `serialcat version [--short]` | Print the version number |
+| `serialcat update [--check]` | Check for and update to the latest version |
+| `serialcat agent serve ...` | Run the serial agent on Windows |
+| `serialcat agent probe [port]` | List local serial ports / probe baud rates |
+| `serialcat send ...` | Send a command to a serial device |
 
-`serialcat -h` 或 `serialcat <命令> -h` 可以随时看帮助。
-
----
-
-## 5. 常见问题
-
-- **`serial port busy`**：串口被另一个程序（别的 agent、SecureCRT 等）占用了。关掉占用者，或改用"持有者下发"（`--url`）方式。
-- **下发了命令但没反应**：设备一般要等待回车符才执行。若命令末尾没有 `\r`，试试明确带回车，如 `send "ls -al\r"`。
-- **串口有持续日志，`send --port` 不好用**：这时命令回显会混在刷屏日志里，建议改用持有者 + `--url` 方式下发，回显在 run/agent 的日志里看。
+`serialcat -h` or `serialcat <command> -h` shows help at any time.
 
 ---
 
-> 更多内部机制、演进计划与已知限制，参见 `docs/roadmap.md` 与 `docs/limitation.md`。
+## 5. FAQ
+
+- **`serial port busy`**: the port is occupied by another program (another agent, SecureCRT, etc.). Close the occupier, or switch to the "holder sends" method (`--url`).
+- **Sent a command but nothing happened**: devices usually wait for a carriage return before executing. If your command doesn't end with `\r`, try adding it explicitly, e.g. `send "ls -al\r"`.
+- **The port has continuous logs and `send --port` is awkward**: the command echo would be mixed into the scrolling log. Prefer the holder + `--url` method instead; the echo shows up in the run/agent log.
+
+---
+
+> For more internals, the roadmap, and known limitations, see `docs/roadmap.md` and `docs/limitation.md`.

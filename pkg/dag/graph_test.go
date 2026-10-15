@@ -11,7 +11,7 @@ import (
 func TestGraphRunEOSAndFanout(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "in.txt")
-	// 构造输入：10 行，其中 3 行含 "want"
+	// Build input: 10 lines, 3 of which contain "want"
 	var in string
 	for i := 0; i < 10; i++ {
 		line := "line " + strings.Repeat("x", i)
@@ -33,7 +33,7 @@ func TestGraphRunEOSAndFanout(t *testing.T) {
 	g.AddNode(c1)
 	c2 := &collectSink{id: "c2"}
 	g.AddNode(c2)
-	// 扇出：grep 同时送 c1、c2
+	// fan-out: grep feeds both c1 and c2
 	g.AddEdge("grep", "c1", 0)
 	g.AddEdge("grep", "c2", 0)
 
@@ -41,9 +41,9 @@ func TestGraphRunEOSAndFanout(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	// 期望 4 行含 want（i=0,3,6,9）
+	// expect 4 lines containing want (i=0,3,6,9)
 	want := 4
 	if len(c1.items) != want || len(c2.items) != want {
-		t.Fatalf("扇出结果不一致: c1=%d c2=%d want=%d", len(c1.items), len(c2.items), want)
+		t.Fatalf("fanout result mismatch: c1=%d c2=%d want=%d", len(c1.items), len(c2.items), want)
 	}
 }

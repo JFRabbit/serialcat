@@ -10,9 +10,10 @@ import (
 	"syscall"
 )
 
-// ReplaceExecutable Windows 下当前 exe 被锁定，无法直接覆盖。
-// 生成批处理脚本：等待当前进程退出后替换文件并自删除，
-// 以隐藏窗口启动脚本后立即返回，调用方应尽快退出进程。
+// ReplaceExecutable: on Windows the current exe is locked and cannot be overwritten directly.
+// Generates a batch script that waits for the current process to exit, replaces the file, and
+// deletes itself; starts the script with a hidden window and returns immediately, so the caller
+// should exit the process as soon as possible.
 func ReplaceExecutable(target, newFile string) error {
 	dir := filepath.Dir(target)
 	batPath := filepath.Join(dir, filepath.Base(target)+".update.bat")
@@ -24,12 +25,12 @@ del "%%~f0"
 `, newFile, target)
 
 	if err := os.WriteFile(batPath, []byte(script), 0o644); err != nil {
-		return fmt.Errorf("创建更新脚本失败: %w", err)
+		return fmt.Errorf("failed to create update script: %w", err)
 	}
 	cmd := exec.Command("cmd", "/c", batPath)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动更新脚本失败: %w", err)
+		return fmt.Errorf("failed to start update script: %w", err)
 	}
 	return nil
 }

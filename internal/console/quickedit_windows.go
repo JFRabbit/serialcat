@@ -4,13 +4,15 @@ package console
 
 import "golang.org/x/sys/windows"
 
-// STD_INPUT_HANDLE 是标准输入句柄常量（-10）。
-const stdinHandle = uint32(0xFFFFFFF6) // -10 转 uint32
+// STD_INPUT_HANDLE is the standard input handle constant (-10).
+const stdinHandle = uint32(0xFFFFFFF6) // -10 as uint32
 
-// DisableQuickEdit 关闭当前控制台的快速编辑模式。
-// QuickEdit 开启时,一旦用户在 CMD 窗口内选中文本,conhost 会挂起该窗口的标准输出,
-// 使高频滚屏的程序（如 run 的 console 实时打印）被背压堵住。
-// 此函数仅对真实控制台生效;stdout/stdin 被重定向时 GetConsoleMode 失败,忽略即可。
+// DisableQuickEdit turns off QuickEdit mode for the current console.
+// With QuickEdit on, once the user selects text inside the CMD window, conhost suspends that
+// window's standard output, backpressuring high-frequency scrolling programs (e.g. the run
+// command's real-time console printing).
+// This only affects a real console; when stdout/stdin are redirected, GetConsoleMode fails and
+// is safely ignored.
 func DisableQuickEdit() {
 	h, err := windows.GetStdHandle(stdinHandle)
 	if err != nil {
@@ -18,7 +20,7 @@ func DisableQuickEdit() {
 	}
 	var mode uint32
 	if err := windows.GetConsoleMode(h, &mode); err != nil {
-		return // 非交互控制台（重定向/管道）时跳过,不影响正常功能
+		return // skip for non-interactive consoles (redirected/pipe); does not affect normal functionality
 	}
 	newMode := mode &^ windows.ENABLE_QUICK_EDIT_MODE
 	if newMode != mode {

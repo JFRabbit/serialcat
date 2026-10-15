@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-// testSource：复用文件语义的最小 source（读文件按批发射，EOF 关 out）。
+// testSource: a minimal source reusing file semantics (reads a file, emits in batches, closes out on EOF).
 type testSource struct {
 	id   string
 	path string
@@ -30,7 +30,7 @@ func (n *testSource) Run(ctx context.Context, _ <-chan []Item) error {
 	var batch []Item
 	for sc.Scan() {
 		batch = append(batch, NewItem(sc.Text()))
-		if len(batch) >= 4 { // 小批量便于测试切批，与引擎扇出/EOS 无关
+		if len(batch) >= 4 { // small batches ease testing batching, unrelated to engine fan-out/EOS
 			if err := emit(ctx, n.out, batch); err != nil {
 				return err
 			}
@@ -55,7 +55,7 @@ func emit(ctx context.Context, out chan []Item, batch []Item) error {
 	}
 }
 
-// testGrep：按子串过滤的 process。
+// testGrep: a process filtering by substring.
 type testGrep struct {
 	id  string
 	sub string
@@ -86,7 +86,7 @@ func (n *testGrep) Run(ctx context.Context, in <-chan []Item) error {
 	return nil
 }
 
-// collectSink：收集所有 Item 的 sink。
+// collectSink: a sink collecting all Items.
 type collectSink struct {
 	id    string
 	mu    sync.Mutex

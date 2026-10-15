@@ -7,7 +7,7 @@ import (
 	"github.com/JFRabbit/serialcat/internal/constant"
 )
 
-// configFile 由 run/val 的局部 -f/--config flag 填充。
+// configFile is populated by the local -f/--config flags of run/val.
 var configFile string
 
 var (
@@ -15,15 +15,15 @@ var (
 	runEnableWritePort int
 )
 
-// runCmd 执行一个 DAG：加载配置 → 构建图 → 运行至结束。
+// runCmd executes a DAG: load config, build the graph, run to completion.
 var runCmd = &cobra.Command{
 	Use:   "run",
-	Short: "按配置读取并处理日志",
-	Long: "按配置文件里定义的流程，把日志来源（本机串口、远端串口代理、或日志文件）的内容" +
-		"过滤后打印到终端或保存到文件。\n" +
-		"参数：-f, --config 配置文件路径(默认 dag.yaml)。\n" +
-		"如需在运行的同时下发命令：加 --enable-write 开启写通道，再用 send --url 指名到本机即可；" +
-		"--enable-write-port 可改写通道端口(默认 7100)。",
+	Short: "Read and process logs per config",
+	Long: "Follow the flow defined in the config file to filter log sources (local serial port, remote serial agent, or log files) " +
+		"and print the result to the terminal or save it to a file.\n" +
+		"Arguments: -f, --config config file path (default dag.yaml).\n" +
+		"To send commands while running: add --enable-write to open the write channel, then use send --url to point to this machine; " +
+		"--enable-write-port changes the write channel port (default 7100).",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return app.Run(cmd.Context(), configFile, app.RunOptions{
 			LocalWrite:     runEnableWrite,
@@ -35,7 +35,7 @@ var runCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(runCmd)
 	fs := runCmd.Flags()
-	fs.StringVarP(&configFile, constant.FlagConfig, "f", constant.DefaultConfigFile, "配置文件路径")
-	fs.BoolVar(&runEnableWrite, "enable-write", false, "开启写通道，便于用 send 通过本机串口下发命令")
-	fs.IntVar(&runEnableWritePort, "enable-write-port", 7100, "写通道端口（默认与 agent 一致）")
+	fs.StringVarP(&configFile, constant.FlagConfig, "f", constant.DefaultConfigFile, "config file path")
+	fs.BoolVar(&runEnableWrite, "enable-write", false, "enable the write channel so send can push commands through the local serial port")
+	fs.IntVar(&runEnableWritePort, "enable-write-port", 7100, "write channel port (defaults to the same as agent)")
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestListenAutoIncrementBaseFree 基口空闲时应直接绑定基口。
+// TestListenAutoIncrementBaseFree covers binding the base port directly when it is free.
 func TestListenAutoIncrementBaseFree(t *testing.T) {
 	base := "127.0.0.1:0"
 	ln, addr, err := listenAutoIncrement(base, 5)
@@ -13,20 +13,20 @@ func TestListenAutoIncrementBaseFree(t *testing.T) {
 		t.Fatalf("listenAutoIncrement: %v", err)
 	}
 	defer ln.Close()
-	_ = addr // 端口为 0 时地址为实际分配端口，这里仅验证成功
+	_ = addr // with port 0 the address is the actually assigned port; here we only verify success
 	if ln == nil {
-		t.Fatal("listener 不应为 nil")
+		t.Fatal("listener should not be nil")
 	}
 }
 
-// TestListenAutoIncrementOccupied 基口被占用时，应自动选到 +1 端口。
+// TestListenAutoIncrementOccupied covers auto-selecting the +1 port when the base port is occupied.
 func TestListenAutoIncrementOccupied(t *testing.T) {
 	occ, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("占位监听失败: %v", err)
+		t.Fatalf("occupied listen failed: %v", err)
 	}
 	defer occ.Close()
-	base := occ.Addr().String() // 已被占用的地址
+	base := occ.Addr().String() // the occupied address
 
 	ln, addr, err := listenAutoIncrement(base, 5)
 	if err != nil {
@@ -35,14 +35,14 @@ func TestListenAutoIncrementOccupied(t *testing.T) {
 	defer ln.Close()
 
 	if addr == base {
-		t.Fatalf("端口被占用却仍选了基口 %s", addr)
+		t.Fatalf("base port %s was occupied but still selected", addr)
 	}
-	t.Logf("基口 %s 占用，自动递增到 %s", base, addr)
+	t.Logf("base port %s occupied, auto-incremented to %s", base, addr)
 }
 
-// TestListenAutoIncrementInvalid 非法地址应报错而非 panic。
+// TestListenAutoIncrementInvalid covers invalid addresses erroring out instead of panicking.
 func TestListenAutoIncrementInvalid(t *testing.T) {
 	if _, _, err := listenAutoIncrement("not-an-addr", 5); err == nil {
-		t.Fatal("非法地址应报错")
+		t.Fatal("invalid address should error")
 	}
 }

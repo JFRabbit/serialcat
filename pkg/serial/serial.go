@@ -1,8 +1,9 @@
-// Package serial 提供串口驱动的平台抽象，供本地串口直连(source:serial)、
-// send 本地写、以及 Windows agent 复用同一套驱动。
+// Package serial provides a platform abstraction for the serial driver, shared by
+// local serial direct connection (source:serial), send-local writes, and the Windows agent.
 //
-// 跨平台约定：Windows 由 go.bug.st/serial 提供真实实现；其余平台为占位桩，
-// Open/ListPorts 返回明确的"仅支持 Windows"错误。
+// Cross-platform convention: Windows uses go.bug.st/serial for the real
+// implementation; other platforms are placeholder stubs whose Open/ListPorts
+// return a clear "Windows only" error.
 package serial
 
 import (
@@ -10,16 +11,18 @@ import (
 	"io"
 )
 
-// errUnsupported 用于非 Windows 平台占位：串口驱动不提供物理能力。
-var ErrUnsupported = errors.New("串口能力仅支持 Windows，请在 Windows 上运行")
+// errUnsupported is the non-Windows platform placeholder: the serial driver provides no physical capability.
+var ErrUnsupported = errors.New("serial capability is supported on Windows only, please run on Windows")
 
-// Driver 是串口驱动的平台抽象。Windows 由 go.bug.st/serial 实现，其余平台为占位桩。
+// Driver is the platform abstraction of the serial driver. Windows is implemented
+// by go.bug.st/serial; other platforms are placeholder stubs.
 type Driver interface {
-	// ListPorts 枚举可用串口名（如 COM5）。
+	// ListPorts enumerates the available serial port names (e.g. COM5).
 	ListPorts() ([]string, error)
-	// Open 打开指定串口（8 数据位/无校验/1 停止位）。
+	// Open opens the given serial port (8 data bits / no parity / 1 stop bit).
 	Open(name string, baud int) (io.ReadWriteCloser, error)
 }
 
-// NewDriver 构造平台串口驱动。非 Windows 平台返回的驱动仅报 unsupported。
+// NewDriver constructs the platform serial driver. On non-Windows platforms the
+// returned driver only reports unsupported.
 func NewDriver() (Driver, error) { return newDriver() }

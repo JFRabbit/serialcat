@@ -1,60 +1,60 @@
-# 已知限制与性能基线（limitation.md）
+# Known Limitations and Performance Baseline (limitation.md)
 
-> 版本：v1.0　|　状态：持续记录，随实现更新
-> 适用：记录当前实现的已知局限、性能基线与后续优化方向
+> Version: v1.0 | Status: continuously recorded, updated as the implementation evolves
+> Scope: known limitations of the current implementation, performance baseline, and future optimization directions
 
 ---
 
-## 1. 纯过滤性能 vs 原生 grep
+## 1. Pure-Filter Performance vs. Native grep
 
-### 1.1 背景
+### 1.1 Background
 
-研发常用场景是"从大日志里筛出含任一关键词的行"（多关键词 OR）。
-serialcat 用 `filter:grep` 节点 + 内置 `bgrep` 正则过滤落盘实现，
-与系统 `grep -a -e A -e B ...` 做同一份输入的对拍。
+A common R&D scenario is "filter lines containing any of several keywords" (multi-keyword OR).
+serialcat uses the `filter:grep` node plus the built-in `bgrep` regex filter to persist to disk,
+benchmarked head-to-head against system `grep -a -e A -e B ...` on the same input.
 
-**测试样本**：`raw/changed_hostname_die_0924.txt`（约 221MB，2,210,841 行）。
-7 路多关键词 OR，输出 8960 行（两工具命中数一致）。
+**Test sample**: `raw/changed_hostname_die_0924.txt` (~221MB, 2,210,841 lines).
+7-way multi-keyword OR, 8960 lines of output (both tools agree on hit count).
 
-| 工具 | 耗时 | 吞吐 | 命中数 |
+| Tool | Time | Throughput | Hits |
 |---|---|---|---|
-| 系统 `grep -a -e ...`（DFA） | 7.17s | ~30MB/s | 8960 |
-| `serialcat run`（当前批量版） | 12.86s | ~17MB/s | 8960 |
+| System `grep -a -e ...` (DFA) | 7.17s | ~30MB/s | 8960 |
+| `serialcat run` (current batched build) | 12.86s | ~17MB/s | 8960 |
 
-serialcat 当前约为 grep 的 **1/1.8** 速度。
+serialcat is currently about **1/1.8** the speed of grep.
 
-### 1.2 根因
+### 1.2 Root Cause
 
-差距主要在**正则匹配算法**，而非传输层：
+The gap is mainly in the **regex matching algorithm**, not the transport layer:
 
-- `grep` 底层是 **DFA**，且对字面子串做了 Boyer–Moore 式快速预筛；本场景关键词
-  多为字面子串，恰好是 DFA 最擅长的输入。
-- Go 的 `regexp` 走 **RE2**（线性但无预筛），逐字节扫描，无分配优化。
-- 每行还有 `Scanner.Text()` 复制 + `Item` 分配 + channel 搬运的开销；grep 直接在
-  内存缓冲区上做字节匹配，零复制零分配。
+- `grep` is built on a **DFA**, with a Boyer–Moore-style fast pre-scan for literal substrings; the keywords in this scenario
+  are mostly literal substrings, exactly the input DFA is best at.
+- Go's `regexp` uses **RE2** (linear but no pre-scan), scanning byte by byte, with no allocation optimizations.
+- Each line also carries the overhead of `Scanner.Text()` copying + `Item` allocation + channel transport; grep does byte matching
+  directly on an in-memory buffer, zero-copy, zero-allocation.
 
-> 注：本次批量重构已把 221MB 处理从 18s 优化到 12.86s（约 12MB/s → 17MB/s，
-> 即约 14 万行/s → 17.2 万行/s）。剩余差距是匹配引擎本质差异，非批量的缺陷。
+> Note: this batch refactor already improved the 221MB processing from 18s to 12.86s (~12MB/s → 17MB/s,
+> i.e. ~140k lines/s → 172k lines/s). The remaining gap is an inherent difference in matching engines, not a defect of batching.
 
-### 1.3 定位说明
+### 1.3 Positioning Statement
 
-serialcat 的定位是"过滤 + 后续定制处理（LLM / 脚本 / 图表 / 告警）"的**管道**，
-单斧过滤这一步短期追不上原生 grep。这是引擎选型差异，属于**已接受**的取舍。
+serialcat's positioning is a **pipeline** for "filtering + subsequent custom processing (LLM / script / chart / alert)";
+the single filtering step cannot catch up with native grep in the short term. This is an engine-selection difference and an **accepted** trade-off.
 
-### 1.4 可选优化方向（未实现，记录备查）
+### 1.4 Optional Optimization Directions (not implemented, recorded for reference)
 
-- **字面子串快速预筛**：对纯字面关键词先跑 `bytes.Index` 险径，命中才进正则。
-- **纯字面分支**：匹配串不含正则元字符时走 `strings.Contains`，避免 RE2 逐字节扫描。
-- 上两者可在不引入外部依赖的前提下显著逼近 grep 吞吐。
+- **Literal substring fast pre-scan**: for purely literal keywords, run a `bytes.Index` fast path first, and only enter the regex on a hit.
+- **Pure-literal branch**: when the match string contains no regex metacharacters, use `strings.Contains`, avoiding RE2's byte-by-byte scan.
+- The two above can approach grep's throughput without introducing external dependencies.
 
 ---
 
-## 2. 其他已知限制
+## 2. Other Known Limitations
 
-- **串口代理仅限 Windows**：`source:serial-remote` 是跨平台纯 HTTP 节点，但提供串口物理能力的 `serialcat agent` 只能在 Windows 上运行（`//go:build windows` 的 `go.bug.st/serial` 实现）。macOS/Linux 上的 agent 只返回 unsupported；本机直连的 `source:serial` 与本地写同理。
-- **串口实时流不经过 `python -m http.server`**：http.server 只能做静态文件分发（用于部署/回传），实时串口流走 agent 自建的 `/api/stream` 长连接；写命令走 `/api/write`（`send` 命令启用）。
-- **连续源无自然 EOS**：串口是持续流，无"读完"概念。断连时 `serial-remote` 自动重连（带断档标记与指数退避），仅在进程取消或永久性错误（如 4xx）时结束。
-- **本地裸发无回显**：`send --port` 是发完即退的盲发，无法获取设备回显；命令回显混在刷屏日志中不可区分。要看效果需让 run/agent 持有串口再经 `--url` 下发。
-- **`filter:grep` 的 `match` 仅支持单个正则**：配置成数组（多关键词 OR）会报"match 应为字符串"，需改用正则 `|`（见 `docs/roadmap.md`，已列为可扩展项）。
-- **`agent serve` 需监听非回环地址才能被对端访问**：默认绑 `:7100`（0.0.0.0），跨机直连；如需只允许特定网卡需显式指定 `--listen`。
-- **回填占位**：网络源、LLM 分析、告警治理等远期范围，随实现进度回填。
+- **Serial agent is Windows-only**: `source:serial-remote` is a cross-platform pure-HTTP node, but `serialcat agent`, which provides the physical serial capability, can only run on Windows (the `go.bug.st/serial` implementation behind `//go:build windows`). On macOS/Linux the agent only returns unsupported; the same applies to the local-direct `source:serial` and local writes.
+- **The real-time serial stream does not go through `python -m http.server`**: http.server can only serve static files (used for deployment/callbacks); the real-time serial stream uses the agent's own `/api/stream` long connection; write commands go through `/api/write` (enabled by the `send` command).
+- **Continuous sources have no natural EOS**: a serial port is a continuous stream with no "finished reading" concept. On disconnect, `serial-remote` auto-reconnects (with a gap marker and exponential backoff), ending only on process cancellation or permanent errors (e.g. 4xx).
+- **Local blind send has no echo**: `send --port` is a send-and-exit blind send; it cannot capture the device echo; command echoes mixed into the scrolling log are indistinguishable. To see the effect, let run/agent hold the port and send via `--url` instead.
+- **`filter:grep`'s `match` only supports a single regex**: configuring an array (multi-keyword OR) reports "match should be a string"; use regex `|` instead (see `docs/roadmap.md`, already listed as an extendable item).
+- **`agent serve` must listen on a non-loopback address to be reachable by peers**: it binds `:7100` (0.0.0.0) by default for cross-machine direct access; specify `--listen` explicitly to restrict to a particular NIC.
+- **Backfill placeholder**: long-term scope such as network sources, LLM analysis, and alert governance will be backfilled as implementation progresses.

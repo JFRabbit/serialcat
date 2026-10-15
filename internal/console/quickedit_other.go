@@ -2,5 +2,5 @@
 
 package console
 
-// DisableQuickEdit 非 Windows 平台无控制台快速编辑行为,空实现。
+// DisableQuickEdit is a no-op since non-Windows platforms have no console QuickEdit behavior.
 func DisableQuickEdit() {}

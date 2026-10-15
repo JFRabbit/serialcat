@@ -8,13 +8,13 @@ import (
 	"github.com/JFRabbit/serialcat/internal/constant"
 )
 
-// short 是 version 命令的短输出 flag。
+// short is the short-output flag of the version command.
 var short bool
 
-// versionCmd 打印版本信息；--short 只出版本号，供脚本取用。
+// versionCmd prints version info; --short prints only the version number for scripts.
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "打印版本信息",
+	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
 		if short {
 			fmt.Println(Version)
@@ -26,6 +26,6 @@ var versionCmd = &cobra.Command{
 }
 
 func init() {
-	versionCmd.Flags().BoolVar(&short, constant.FlagShort, false, "仅返回版本号")
+	versionCmd.Flags().BoolVar(&short, constant.FlagShort, false, "print the version number only")
 	rootCmd.AddCommand(versionCmd)
 }

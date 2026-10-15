@@ -1,5 +1,5 @@
-// Package app 是 CLI 的业务编排层：加载配置、校验、运行 DAG。
-// 依赖 pkg/ 下的引擎与节点库，不包含 cobra 相关代码。
+// Package app is the CLI orchestration layer: loads config, validates, and runs DAGs.
+// It depends on the engine and node libraries under pkg/ and contains no cobra code.
 package app
 
 import (
@@ -18,19 +18,20 @@ import (
 	"github.com/JFRabbit/serialcat/pkg/nodes"
 )
 
-// RunOptions 汇聚 run 的局部选项。
+// RunOptions collects the run command's local options.
 type RunOptions struct {
-	// LocalWrite 是否开启本地写通道：source:serial 打开串口后，在回环端口暴露 POST /api/write，
-	// 供 send --url http://127.0.0.1:<Port> 复用同一串口句柄下发命令（避免重复 Open 冲突）。默认 7100，同 agent。
+	// LocalWrite enables the local write channel: after source:serial opens the port, expose POST /api/write
+	// on a loopback port, so send --url http://127.0.0.1:<Port> can reuse the same serial handle to send
+	// commands (avoiding repeated Open conflicts). Default 7100, same as the agent.
 	LocalWrite     bool
 	LocalWritePort int
 }
 
-// Run 加载并执行一个 DAG 配置文件，阻塞至执行结束或收到中断信号。
+// Run loads and executes a DAG config file, blocking until execution finishes or an interrupt signal arrives.
 func Run(ctx context.Context, cfgPath string, opts RunOptions) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return fmt.Errorf("加载配置 %s: %w", cfgPath, err)
+		return fmt.Errorf("load config %s: %w", cfgPath, err)
 	}
 	g, err := nodes.Build(cfg)
 	if err != nil {
@@ -38,7 +39,7 @@ func Run(ctx context.Context, cfgPath string, opts RunOptions) error {
 	}
 
 	if opts.LocalWrite {
-		// 把写能力注入到 source:serial 节点：串口打开后起回环写 server，复用其句柄。
+		// Inject the write capability into the source:serial node: after the port opens, start a loopback write server reusing its handle.
 		for _, n := range g.Nodes {
 			if s, ok := n.(*nodes.LocalSerial); ok {
 				port := opts.LocalWritePort
@@ -56,20 +57,21 @@ func Run(ctx context.Context, cfgPath string, opts RunOptions) error {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sig
-		logger.Info("收到中断信号，停止")
+		logger.Info("received interrupt signal, stopping")
 		cancel()
 	}()
 
 	return g.Run(rctx)
 }
 
-// startLoopbackWrite 在 127.0.0.1:port 暴露 POST /api/write，把内容写入串口句柄 p。
-// 仅绑回环、不做鉴权（本机即身份）；端口被占用时仅提示、不阻塞 run。随 ctx 取消而关停。
+// startLoopbackWrite exposes POST /api/write on 127.0.0.1:port, writing payloads to the serial handle p.
+// It binds loopback only, without auth (localhost is the identity); when the port is taken it only logs
+// and does not block run. It stops when ctx is canceled.
 func startLoopbackWrite(ctx context.Context, p io.ReadWriteCloser, port int) {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		logger.Info("本地写端口 %d 开启失败（可能被占用），未启用，%v", port, err)
+		logger.Info("local write port %d failed to open (maybe in use), not enabled, %v", port, err)
 		return
 	}
 
@@ -98,14 +100,14 @@ func startLoopbackWrite(ctx context.Context, p io.ReadWriteCloser, port int) {
 		_ = srv.Shutdown(shutCtx)
 	}()
 
-	logger.Info("本地写通道已开启 127.0.0.1:%d", port)
+	logger.Info("local write channel enabled 127.0.0.1:%d", port)
 }
 
-// Validate 只校验配置拓扑与节点构建，不执行。
+// Validate only checks the config topology and node building, without running.
 func Validate(cfgPath string) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return fmt.Errorf("加载配置 %s: %w", cfgPath, err)
+		return fmt.Errorf("load config %s: %w", cfgPath, err)
 	}
 	if _, err := nodes.Build(cfg); err != nil {
 		return err

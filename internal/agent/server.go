@@ -19,19 +19,19 @@ import (
 	"github.com/JFRabbit/serialcat/pkg/serial"
 )
 
-// Options 是 agent serve 的启动选项，控制写接口暴露与本地落盘（默认开启）。
+// Options are the startup options for agent serve, controlling write endpoint exposure and local logging (enabled by default).
 type Options struct {
-	// WriteEnabled 是否暴露下行写接口 /api/write。默认关闭（返回 403），最安全。
+	// WriteEnabled enables the downstream write endpoint /api/write. Off by default (returns 403), the safest.
 	WriteEnabled bool
-	// WriteToken 写接口鉴权令牌。非空时 /api/write 要求 Authorization: Bearer <token>。
+	// WriteToken is the auth token for the write endpoint. When non-empty, /api/write requires Authorization: Bearer <token>.
 	WriteToken string
-	// NoLocalLog 关闭本地默认落盘（默认开启）。开启时串口帧流额外写当前路径日志文件。
+	// NoLocalLog disables the default local logging (enabled by default). When local logging is enabled, the serial frame stream is additionally written to a log file in the current directory.
 	NoLocalLog bool
-	// OutDir 默认落盘输出目录，默认当前路径。
+	// OutDir is the default output directory for local logging; defaults to the current directory.
 	OutDir string
 }
 
-// Server 是 agent 的 HTTP 服务端，暴露串口枚举/实时流/下行能力。
+// Server is the agent's HTTP server, exposing serial enumeration, real-time streaming, and write capabilities.
 type Server struct {
 	addr    string
 	port    string
@@ -39,17 +39,17 @@ type Server struct {
 	drv     serial.Driver
 	src     *SerialSource
 	opts    Options
-	ln      net.Listener // 已绑定的监听器（用于端口自动递增），nil 时内部自行 ListenAndServe
+	ln      net.Listener // listener already bound (for automatic port increment); when nil, ListenAndServe is called internally
 	cancel  context.CancelFunc
 	httpSrv *http.Server
-	logPath string // 当前默认落盘日志文件路径，供 /api/logs 历史读取；未落盘时为空
+	logPath string // current default log file path for /api/logs history reads; empty when local logging is off
 }
 
-// NewServer 构造 HTTP 服务端并打开串口，准备就绪后调用 Start 对外服务。
+// NewServer builds the HTTP server and opens the serial port; call Start to serve once ready.
 func NewServer(addr, serialPort string, baud int, drv serial.Driver, opts Options) (*Server, error) {
 	p, err := drv.Open(serialPort, baud)
 	if err != nil {
-		return nil, fmt.Errorf("打开串口: %w", err)
+		return nil, fmt.Errorf("open serial port: %w", err)
 	}
 	return &Server{
 		addr: addr,
@@ -61,25 +61,25 @@ func NewServer(addr, serialPort string, baud int, drv serial.Driver, opts Option
 	}, nil
 }
 
-// SetListener 注入已绑定的监听器；不注入时 Start 内部自行 ListenAndServe。
+// SetListener injects an already-bound listener; when not injected, Start calls ListenAndServe internally.
 func (s *Server) SetListener(l net.Listener) { s.ln = l }
 
-// SetAddr 更新监听地址（端口递增后用于同步实际地址）。
+// SetAddr updates the listen address (used to sync the actual address after port increment).
 func (s *Server) SetAddr(a string) { s.addr = a }
 
-// Start 启动串口读取与 HTTP 服务，阻塞直至 ctx 取消。
+// Start launches serial reading and the HTTP service, blocking until ctx is canceled.
 func (s *Server) Start(ctx context.Context) error {
 	sctx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 
-	// 串口读取协程：异常退出即取消服务。
+	// Serial read goroutine: cancels the service on abnormal exit.
 	go func() {
 		if err := s.src.Run(sctx); err != nil && sctx.Err() == nil {
-			logger.Error("串口读取终止: %v", err)
+			logger.Error("serial read terminated: %v", err)
 			cancel()
 		}
 	}()
-	// 本地默认落盘：默认开启，串口流额外写本地文件（与 /api/stream 订阅完全解耦）。
+	// Local default logging: enabled by default, the serial stream is additionally written to a local file (fully decoupled from /api/stream subscriptions).
 	if !s.opts.NoLocalLog {
 		s.startLocalLog(sctx)
 	}
@@ -102,7 +102,7 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
-	logger.Info("agent 串口代理已启动 串口=%s 波特率=%d 监听=%s", s.port, s.baud, s.addr)
+	logger.Info("agent serial proxy started  serial=%s baud=%d listen=%s", s.port, s.baud, s.addr)
 	select {
 	case <-sctx.Done():
 		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -115,12 +115,12 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 }
 
-// handleHealth 探活。
+// handleHealth is the liveness probe.
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok\n"))
 }
 
-// handlePorts 枚举 COM 端口。
+// handlePorts enumerates COM ports.
 func (s *Server) handlePorts(w http.ResponseWriter, r *http.Request) {
 	ports, err := s.drv.ListPorts()
 	if err != nil {
@@ -134,7 +134,7 @@ func (s *Server) handlePorts(w http.ResponseWriter, r *http.Request) {
 	_ = r
 }
 
-// handleStream 实时串口流（NDJSON 长连接）。
+// handleStream serves the real-time serial stream (NDJSON long connection).
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
 	if !ok {
@@ -155,21 +155,21 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	for f := range ch {
 		if err := enc.Encode(f); err != nil {
-			return // 客户端断开
+			return // client disconnected
 		}
 		fl.Flush()
 	}
 }
 
-// handleWrite 下行命令。未开启写开关时返回 403；开启后校验 Bearer token（若设置）。
-// data 中的 \r　\n \t 字面转义统一在发送侧处理，此处再转义一次做幂等保障。
+// handleWrite handles downstream commands. Returns 403 when the write switch is off; when on, validates the Bearer token (if set).
+// The literal \r \n \t escapes in data are handled on the sending side; escaping again here provides idempotency.
 func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 	if !s.opts.WriteEnabled {
-		http.Error(w, "写接口未开启，agent 启动时需加 --enable-write", http.StatusForbidden)
+		http.Error(w, "write endpoint is disabled; start the agent with --enable-write", http.StatusForbidden)
 		return
 	}
 	if s.opts.WriteToken != "" && r.Header.Get("Authorization") != "Bearer "+s.opts.WriteToken {
-		http.Error(w, "未授权：缺少或错误的 authorization 令牌", http.StatusUnauthorized)
+		http.Error(w, "unauthorized: missing or wrong authorization token", http.StatusUnauthorized)
 		return
 	}
 	data := r.URL.Query().Get("data")
@@ -186,24 +186,24 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"ok": "sent"})
 }
 
-// startLocalLog 订阅串口帧流并写入本地落盘日志文件（默认开启）。
-// 文件名 serialcat-serial-{port}-{ts}.log，{ts} 展开为启动时间戳（复用既有约定）。
+// startLocalLog subscribes to the serial frame stream and writes it to a local log file (enabled by default).
+// The file name is serialcat-serial-{port}-{ts}.log, where {ts} expands to the startup timestamp (reusing the existing convention).
 func (s *Server) startLocalLog(ctx context.Context) {
 	name := fmt.Sprintf("serialcat-serial-%s-%s.log", s.port, time.Now().Format("20060102-150405"))
 	if dir := s.opts.OutDir; dir != "" {
 		name = filepath.Join(dir, name)
 	}
-	// 当前落盘文件路径就绪后,才能被 /api/logs 读取;赋值须早于 http 路由注册/被调用。
+	// The log path must be set before it can be read by /api/logs; the assignment must happen before the HTTP routes are registered/called.
 	s.logPath = name
 	if dir := filepath.Dir(name); dir != "." && dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			logger.Error("创建落盘日志目录失败: %v", err)
+			logger.Error("failed to create log directory: %v", err)
 			return
 		}
 	}
 	f, err := os.Create(name)
 	if err != nil {
-		logger.Error("创建本地落盘日志失败: %v", err)
+		logger.Error("failed to create local log file: %v", err)
 		return
 	}
 	ch, err := s.src.Subscribe(ctx)
@@ -212,42 +212,42 @@ func (s *Server) startLocalLog(ctx context.Context) {
 		return
 	}
 	go func() {
-		f := f // 局部可变句柄,重开后会更新,defer 关闭最新句柄
+		f := f // local mutable handle; updated after reopen, defer closes the latest handle
 		w := bufio.NewWriter(f)
 		curPath := name
 		defer func() { _ = w.Flush(); _ = f.Close() }()
 		for fr := range ch {
-			// 落盘文件被外部删除/移走时,重建同名(或递增后缀)文件继续追加,保证不中断。
+			// When the log file is deleted/moved externally, recreate the same-named (or incremented suffix) file and continue appending without interruption.
 			if _, err := os.Stat(curPath); err != nil {
 				if nf, npath, e := recreateLogFile(curPath); e == nil {
-					_ = w.Flush() // 旧缓冲尽量落盘
-					_ = f.Close() // 关闭旧句柄,defer 将关闭新句柄
+					_ = w.Flush() // flush the old buffer as much as possible
+					_ = f.Close() // close the old handle; defer will close the new handle
 					f, w, curPath = nf, bufio.NewWriter(nf), npath
-					fmt.Printf("日志文件被删除,已重建续写: %s\n", npath)
+					fmt.Printf("log file was deleted, recreated and continuing: %s\n", npath)
 				} else {
-					logger.Error("重建落盘日志失败: %v", e)
+					logger.Error("failed to recreate log file: %v", e)
 				}
 			}
 			_, _ = fmt.Fprintf(w, "%s %s\n", fr.Ts.Format("2006-01-02 15:04:05.000"), fr.Text)
-			// 逐行 flush：落盘日志必须实时写盘，避免攒在 4KB 缓冲里"过一会才出现"。
+			// Flush per line: the log must hit disk in real time to avoid sitting in the 4KB buffer and appearing late.
 			_ = w.Flush()
 		}
 	}()
-	// 控制台打印输出文件名,方便定位落盘日志（standalone stdout,与 logger 隔离）。
+	// Print the file name to the console for locating the log (standalone stdout, isolated from logger).
 	if abs, err := filepath.Abs(name); err == nil {
-		fmt.Printf("本地落盘日志: %s\n", abs)
+		fmt.Printf("local log file: %s\n", abs)
 	} else {
-		fmt.Printf("本地落盘日志: %s\n", name)
+		fmt.Printf("local log file: %s\n", name)
 	}
-	logger.Info("本地落盘日志已开启: %s", name)
+	logger.Info("local logging enabled: %s", name)
 }
 
-// recreateLogFile 在落盘日志文件被删除后重建:优先同名;同名创建失败(如被目录占用)
-// 则自动递增后缀(如 xxx-1.log)。返回新句柄与新路径。
+// recreateLogFile recreates the log file after it was deleted: same name first; if that fails (e.g., taken by a directory)
+// it automatically increments the suffix (e.g., xxx-1.log). Returns the new handle and path.
 func recreateLogFile(name string) (*os.File, string, error) {
 	if dir := filepath.Dir(name); dir != "." && dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, "", fmt.Errorf("重建目录 %s: %w", dir, err)
+			return nil, "", fmt.Errorf("recreate directory %s: %w", dir, err)
 		}
 	}
 	if f, err := os.Create(name); err == nil {
@@ -261,14 +261,14 @@ func recreateLogFile(name string) (*os.File, string, error) {
 			return f, alt, nil
 		}
 	}
-	return nil, "", fmt.Errorf("无法重开默认日志(同名及 1000 个后缀均失败): %s", name)
+	return nil, "", fmt.Errorf("cannot reopen default log (same name and 1000 suffixed names all failed): %s", name)
 }
 
-// handleProbe 对指定端口做波特率探测并返回推荐参数。
+// handleProbe probes baud rates for the given port and returns recommended parameters.
 func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 	port := r.URL.Query().Get("port")
 	if port == "" {
-		http.Error(w, "缺少 port 参数", http.StatusBadRequest)
+		http.Error(w, "missing port parameter", http.StatusBadRequest)
 		return
 	}
 	res, err := Probe(s.drv, port)
@@ -279,30 +279,30 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, res)
 }
 
-// 落盘日志固定前缀：2006-01-02 15:04:05.000(23字符) + 一个空格，然后才是原文。
+// Fixed prefix of the log line: 2006-01-02 15:04:05.000 (23 chars) + one space, then the raw text.
 const logTimeLayout = "2006-01-02 15:04:05.000"
 
 const logTimePrefixLen = len("2006-01-02 15:04:05.000")
 
-// /api/logs 返回体：分页式历史日志。
+// /api/logs response body: paginated history logs.
 type logsResponse struct {
-	Count   int       `json:"count"`   // 本批返回行数
-	HasMore bool      `json:"hasMore"` // 是否还有更多（正向续读且未到末尾时为 true；尾部恒 false）
-	Next    string    `json:"next"`    // 续读游标：有更多时填最后一条时间，调用方下次作为 after；否则空
-	Rows    []logsRow `json:"rows"`    // 本批行，时间正序
+	Count   int       `json:"count"`   // number of rows in this batch
+	HasMore bool      `json:"hasMore"` // whether more rows remain (true for forward pagination before EOF; always false for tail)
+	Next    string    `json:"next"`    // continuation cursor: the last row's time when more rows remain (use as next after); empty otherwise
+	Rows    []logsRow `json:"rows"`    // rows in this batch, chronological order
 }
 
 type logsRow struct {
-	Ts   string `json:"ts"`   // 落盘格式时间戳
-	Text string `json:"text"` // 原始行原文
+	Ts   string `json:"ts"`   // timestamp in the log format
+	Text string `json:"text"` // raw line text
 }
 
-// handleLogs 历史日志读取：从默认落盘文件读取。
-// 正向续读：GET /api/logs?after=<ts>&until=<ts>&limit=<N>&filter=<正则>
-// 尾部快照：GET /api/logs?tail=true&limit=<N>&filter=<正则>（最近 N 条）
+// handleLogs reads history logs from the default log file.
+// Forward pagination: GET /api/logs?after=<ts>&until=<ts>&limit=<N>&filter=<regex>
+// Tail snapshot: GET /api/logs?tail=true&limit=<N>&filter=<regex> (latest N rows)
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if s.opts.NoLocalLog || s.logPath == "" {
-		http.Error(w, "agent 未开启本地落盘(--no-local-log)，无历史日志", http.StatusNotFound)
+		http.Error(w, "agent has local logging disabled (--no-local-log); no history logs", http.StatusNotFound)
 		return
 	}
 	q := r.URL.Query()
@@ -311,7 +311,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 || n > 10000 {
-			http.Error(w, "limit 参数非法（1-10000）", http.StatusBadRequest)
+			http.Error(w, "invalid limit parameter (1-10000)", http.StatusBadRequest)
 			return
 		}
 		limit = n
@@ -321,16 +321,16 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if f := q.Get("filter"); f != "" {
 		var err error
 		if re, err = regexp.Compile(f); err != nil {
-			http.Error(w, "filter 正则无效: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, "invalid filter regex: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
 	match := func(text string) bool { return re == nil || re.MatchString(text) }
 
-	// 尾部快照模式：一次性返回最近 limit 行，时间正序。
+	// Tail snapshot mode: returns the latest limit rows at once, chronological order.
 	if q.Get("tail") == "true" || q.Get("tail") == "1" {
 		if q.Get("after") != "" || q.Get("until") != "" {
-			http.Error(w, "tail 模式不能同时使用 after/until", http.StatusBadRequest)
+			http.Error(w, "tail mode cannot be combined with after/until", http.StatusBadRequest)
 			return
 		}
 		rows, err := readTailLog(s.logPath, limit, match)
@@ -342,12 +342,12 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 正向续读模式。
+	// Forward pagination mode.
 	var after, until *time.Time
 	if v := q.Get("after"); v != "" {
 		t, err := time.ParseInLocation(logTimeLayout, v, time.Local)
 		if err != nil {
-			http.Error(w, "after 时间格式无效（应为 "+logTimeLayout+"）", http.StatusBadRequest)
+			http.Error(w, "invalid after time format (expected "+logTimeLayout+")", http.StatusBadRequest)
 			return
 		}
 		after = &t
@@ -355,13 +355,13 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("until"); v != "" {
 		t, err := time.ParseInLocation(logTimeLayout, v, time.Local)
 		if err != nil {
-			http.Error(w, "until 时间格式无效（应为 "+logTimeLayout+"）", http.StatusBadRequest)
+			http.Error(w, "invalid until time format (expected "+logTimeLayout+")", http.StatusBadRequest)
 			return
 		}
 		until = &t
 	}
 	if after != nil && until != nil && after.After(*until) {
-		http.Error(w, "after 不能晚于 until", http.StatusBadRequest)
+		http.Error(w, "after cannot be later than until", http.StatusBadRequest)
 		return
 	}
 
@@ -373,7 +373,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, logsResponse{Count: len(rows), HasMore: hasMore, Next: next, Rows: rows})
 }
 
-// parseLogLine 解析一行为 (时间, 原文, 是否合法)。非法行(非本落盘格式)直接跳过。
+// parseLogLine parses a line into (time, raw text, valid). Invalid lines (not in the log format) are skipped.
 func parseLogLine(raw []byte) (time.Time, string, bool) {
 	if len(raw) < logTimePrefixLen+2 || raw[logTimePrefixLen] != ' ' {
 		return time.Time{}, "", false
@@ -385,8 +385,8 @@ func parseLogLine(raw []byte) (time.Time, string, bool) {
 	return t, string(raw[logTimePrefixLen+1:]), true
 }
 
-// readForwardLog 正向线性扫描历史落盘文件：返回满足条件(after<ts<=until 且命中 filter)的行，
-// 以及(hasMore, next) 续读游标。
+// readForwardLog linearly scans the history log forward: returns rows matching (after<ts<=until and filter),
+// plus the (hasMore, next) continuation cursor.
 func readForwardLog(logPath string, after, until *time.Time, limit int, match func(string) bool) ([]logsRow, bool, string, error) {
 	f, err := os.Open(logPath)
 	if err != nil {
@@ -414,7 +414,7 @@ func readForwardLog(logPath string, after, until *time.Time, limit int, match fu
 		last = t
 		rows = append(rows, logsRow{Ts: t.Format(logTimeLayout), Text: text})
 		if len(rows) >= limit {
-			// 已达到本批上限：再向后扫一段判断还有没有匹配行，决定 hasMore/next。
+			// Batch limit reached: scan a bit further to decide hasMore/next.
 			hasMore := scanHasMoreLog(logPath, last, until, match)
 			var next string
 			if hasMore {
@@ -426,11 +426,11 @@ func readForwardLog(logPath string, after, until *time.Time, limit int, match fu
 	return rows, false, "", sc.Err()
 }
 
-// scanHasMoreLog 判断在 after 之后(且 <=until、命中 filter)是否还有行。
+// scanHasMoreLog reports whether more rows exist after the given time (and <=until, matching filter).
 func scanHasMoreLog(logPath string, after time.Time, until *time.Time, match func(string) bool) bool {
 	f, err := os.Open(logPath)
 	if err != nil {
-		return true // 打开失败保守返回有更多，避免客户端丢掉尾部
+		return true // on open failure, conservatively report more to avoid the client dropping the tail
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
@@ -452,8 +452,8 @@ func scanHasMoreLog(logPath string, after time.Time, until *time.Time, match fun
 	return false
 }
 
-// readTailLog 从文件末尾反向读取最近的 limit 行（命中 filter），返回时间正序。
-// 采用分块往回读，读满即停，不整读全文件。
+// readTailLog reads the latest limit rows (matching filter) backward from the end of the file, returning them in chronological order.
+// It reads back in chunks and stops once full, without reading the whole file.
 func readTailLog(logPath string, limit int, match func(string) bool) ([]logsRow, error) {
 	f, err := os.Open(logPath)
 	if err != nil {
@@ -505,14 +505,14 @@ func readTailLog(logPath string, limit int, match func(string) bool) ([]logsRow,
 		partial = append(block, partial...)
 		extract()
 	}
-	// 收尾：off==0 后 partial 可能仍含完整行(rows 未满时 extract 已拆)；剩余无换行段是文件首行残段。
+	// Wrap-up: after off==0, partial may still hold a complete line (extract already split it if rows are not full); the remaining newline-less segment is a fragment of the file's first line.
 	extract()
 	if len(rows) < limit && len(partial) > 0 {
 		if t, text, ok := parseLogLine(partial); ok && match(text) {
 			rows = append(rows, logsRow{Ts: t.Format(logTimeLayout), Text: text})
 		}
 	}
-	// rows 为从文件尾向前收集，反转成时间正序。
+	// rows were collected backward from the file end; reverse into chronological order.
 	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
 		rows[i], rows[j] = rows[j], rows[i]
 	}
@@ -526,6 +526,6 @@ func httpError(w http.ResponseWriter, err error) {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		logger.Error("写 JSON 响应失败: %v", err)
+		logger.Error("failed to write JSON response: %v", err)
 	}
 }

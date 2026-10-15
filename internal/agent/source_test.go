@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// pipePort 预置行数据的内存端口：读完后持续阻塞，直到 Close 触发错误退出。
-// eofOnEmpty 时读尽数据直接返回 io.EOF（用于 Run 正常收尾的场景）。
+// pipePort is an in-memory port with preset line data: after reading all data it blocks until Close triggers an error exit.
+// With eofOnEmpty it returns io.EOF once data is exhausted (used for the Run normal-exit scenario).
 type pipePort struct {
 	mu         sync.Mutex
 	data       []byte
@@ -43,7 +43,7 @@ func (p *pipePort) Close() error {
 	return nil
 }
 
-// 按行广播：同一帧应同时送达多个订阅者，且行尾 \r\n 被裁剪。
+// Broadcasting by line: the same frame should reach multiple subscribers simultaneously, and trailing \r\n is trimmed.
 func TestSerialSourceBroadcastToSubscribers(t *testing.T) {
 	data := "line1\nline2\r\nline3\n"
 	src := NewSerialSource(&pipePort{data: []byte(data), done: make(chan struct{})})
@@ -54,14 +54,14 @@ func TestSerialSourceBroadcastToSubscribers(t *testing.T) {
 
 	ch1, err := src.Subscribe(ctx1)
 	if err != nil {
-		t.Fatalf("Subscribe 返回错误: %v", err)
+		t.Fatalf("Subscribe returned error: %v", err)
 	}
 	ch2, err := src.Subscribe(ctx2)
 	if err != nil {
-		t.Fatalf("Subscribe 返回错误: %v", err)
+		t.Fatalf("Subscribe returned error: %v", err)
 	}
 
-	// 帧读完后串口仍阻塞，用 ctx 取消让 Run 退出（覆盖 ctx.Err() 分支）
+	// After the frames are read, the port still blocks; use ctx cancel to make Run exit (covers the ctx.Err() branch).
 	rctx, rcancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- src.Run(rctx) }()
@@ -72,31 +72,31 @@ func TestSerialSourceBroadcastToSubscribers(t *testing.T) {
 			select {
 			case f, ok := <-ch:
 				if !ok {
-					t.Fatalf("帧 %d %s 通道已关闭", i, name)
+					t.Fatalf("frame %d %s channel closed", i, name)
 				}
 				if f.Text != wantText {
-					t.Errorf("帧 %d %s = %q, 期望 %q", i, name, f.Text, wantText)
+					t.Errorf("frame %d %s = %q, want %q", i, name, f.Text, wantText)
 				}
 				if f.Ts.IsZero() {
-					t.Errorf("帧 %d %s 时间戳为零", i, name)
+					t.Errorf("frame %d %s timestamp is zero", i, name)
 				}
 			case <-time.After(2 * time.Second):
-				t.Fatalf("帧 %d %s 超时未收到", i, name)
+				t.Fatalf("frame %d %s timed out waiting", i, name)
 			}
 		}
 	}
 
 	rcancel()
-	// 帧读完后 Read 阻塞在空端口上，Close 解除阻塞；此时 ctx 已取消，Run 应返回 ctx.Err()
+	// After the frames are read, Read blocks on the empty port; Close unblocks it. Since ctx is canceled, Run should return ctx.Err().
 	_ = src.Close()
 	if err := <-done; !errors.Is(err, context.Canceled) {
-		t.Fatalf("Run 返回 %v, 期望 context.Canceled", err)
+		t.Fatalf("Run returned %v, want context.Canceled", err)
 	}
 }
 
-// 背压隔离：慢订阅者不读取时，帧被丢弃但不拖慢广播与其他订阅者。
+// Backpressure isolation: when a slow subscriber does not read, frames are dropped without slowing down broadcasting or other subscribers.
 func TestSerialSourceSlowSubscriberDropsFrames(t *testing.T) {
-	n := 600 // 超过订阅者缓冲 512
+	n := 600 // exceeds the subscriber buffer of 512
 	var sb strings.Builder
 	for i := 0; i < n; i++ {
 		sb.WriteString("x\n")
@@ -111,8 +111,8 @@ func TestSerialSourceSlowSubscriberDropsFrames(t *testing.T) {
 	fast, _ := src.Subscribe(fastCtx)
 	slow, _ := src.Subscribe(slowCtx)
 
-	// 快订阅者边收边读（并发排空），应拿到全部帧；
-	// 慢订阅者不读，缓冲满 512 后其余帧被丢弃。
+	// The fast subscriber reads while receiving (concurrently draining) and should get all frames;
+	// the slow subscriber does not read, so once the buffer of 512 fills up the remaining frames are dropped.
 	fastCountCh := make(chan int, 1)
 	go func() {
 		c := 0
@@ -125,28 +125,28 @@ func TestSerialSourceSlowSubscriberDropsFrames(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- src.Run(context.Background()) }()
 	if err := <-done; err != nil {
-		t.Fatalf("Run 返回错误: %v", err)
+		t.Fatalf("Run returned error: %v", err)
 	}
 
-	// Run 结束（EOF）后通道不会自行关闭（只有 ctx 取消才关闭），退订后统计帧数。
+	// After Run ends (EOF), the channel is not closed by itself (only ctx cancel closes it); count frames after unsubscribing.
 	fastCancel()
 	slowCancel()
 
 	if fastCount := <-fastCountCh; fastCount != n {
-		t.Errorf("快订阅者收到 %d 帧, 期望 %d", fastCount, n)
+		t.Errorf("fast subscriber received %d frames, want %d", fastCount, n)
 	}
 
-	// 慢订阅者缓冲满后丢帧：应少于总数（丢帧语义生效）
+	// Frames are dropped once the slow subscriber's buffer is full: fewer than the total (drop semantics active).
 	slowCount := 0
 	for range slow {
 		slowCount++
 	}
 	if slowCount != 512 {
-		t.Errorf("慢订阅者收到 %d 帧, 期望缓冲上限 512（其余被丢弃）", slowCount)
+		t.Errorf("slow subscriber received %d frames, want buffer limit 512 (rest dropped)", slowCount)
 	}
 }
 
-// ctx 取消：订阅者自动退订且通道被关闭。
+// ctx cancel: the subscriber is automatically unsubscribed and its channel is closed.
 func TestSerialSourceUnsubscribeOnCtxCancel(t *testing.T) {
 	src := NewSerialSource(&pipePort{data: []byte("hello\n"), done: make(chan struct{})})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -157,59 +157,59 @@ func TestSerialSourceUnsubscribeOnCtxCancel(t *testing.T) {
 	select {
 	case _, ok := <-ch:
 		if ok {
-			t.Error("ctx 取消后通道仍可读，期望已关闭")
+			t.Error("channel still readable after ctx cancel, want closed")
 		}
 	case <-time.After(2 * time.Second):
-		t.Error("ctx 取消后通道未在预期时间内关闭")
+		t.Error("channel not closed within the expected time after ctx cancel")
 	}
 
-	// 退订后广播不应阻塞也不应 panic
+	// After unsubscribe, broadcasting should neither block nor panic.
 	src.mu.Lock()
 	if len(src.subs) != 0 {
-		t.Errorf("退订后订阅表残留 %d 个订阅者", len(src.subs))
+		t.Errorf("subscription table still has %d subscribers after unsubscribe", len(src.subs))
 	}
 	src.mu.Unlock()
 	src.broadcast(Frame{Text: "orphan"})
 }
 
-// EOF 语义：串口读尽返回 io.EOF 时 Run 正常返回 nil。
+// EOF semantics: Run returns nil when the serial port returns io.EOF after reading all data.
 func TestSerialSourceRunEOFReturnsNil(t *testing.T) {
-	// strings.Reader 读完即返回 io.EOF
+	// strings.Reader returns io.EOF once fully read
 	src := NewSerialSource(&struct {
 		io.Reader
 		io.Writer
 		io.Closer
 	}{Reader: strings.NewReader("only\n"), Writer: &strings.Builder{}, Closer: io.NopCloser(strings.NewReader(""))})
 	if err := src.Run(context.Background()); err != nil {
-		t.Fatalf("Run 应返回 nil, 得到: %v", err)
+		t.Fatalf("Run should return nil, got: %v", err)
 	}
 }
 
-// Close 语义：Close 底层端口后 Read 出错，Run 返回底层错误（非 EOF）。
+// Close semantics: after closing the underlying port, Read errors and Run returns the underlying error (not EOF).
 func TestSerialSourceRunCloseError(t *testing.T) {
-	p := &pipePort{data: []byte("partial"), done: make(chan struct{})} // 无换行,读完即阻塞
+	p := &pipePort{data: []byte("partial"), done: make(chan struct{})} // no newline; blocks after reading
 	src := NewSerialSource(p)
 	done := make(chan error, 1)
 	go func() { done <- src.Run(context.Background()) }()
 
 	if err := src.Close(); err != nil {
-		t.Fatalf("Close 返回错误: %v", err)
+		t.Fatalf("Close returned error: %v", err)
 	}
 	select {
 	case err := <-done:
 		if err == nil {
-			t.Error("串口关闭后 Run 应返回错误")
+			t.Error("Run should return an error after the port is closed")
 		}
 		if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
-			t.Errorf("Run 返回 %v, 期望底层读错误而非 EOF/ctx 取消", err)
+			t.Errorf("Run returned %v, want the underlying read error rather than EOF/ctx cancel", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Error("Run 在端口关闭后未退出")
+		t.Error("Run did not exit after the port was closed")
 	}
 }
 
-// ctx 取消时 Run 返回 ctx.Err()：取消后关闭端口解除 Read 阻塞，
-// 错误处理优先检查 ctx（source.go 中 ctx.Err() 分支优先于底层错误）。
+// Run returns ctx.Err() on ctx cancel: cancel then close the port to unblock Read;
+// error handling checks ctx first (in source.go the ctx.Err() branch takes priority over the underlying error).
 func TestSerialSourceRunCtxCancel(t *testing.T) {
 	p := &pipePort{data: []byte("stuck"), done: make(chan struct{})}
 	defer p.Close()
@@ -219,29 +219,29 @@ func TestSerialSourceRunCtxCancel(t *testing.T) {
 	go func() { done <- src.Run(ctx) }()
 
 	cancel()
-	time.Sleep(50 * time.Millisecond) // 确保取消先于端口错误到达
+	time.Sleep(50 * time.Millisecond) // ensure cancel arrives before the port error
 	_ = src.Close()
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
-			t.Errorf("Run 返回 %v, 期望 context.Canceled", err)
+			t.Errorf("Run returned %v, want context.Canceled", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Error("ctx 取消后 Run 未退出")
+		t.Error("Run did not exit after ctx cancel")
 	}
 }
 
-// Write/Close 透传语义。
+// Write/Close pass-through semantics.
 func TestSerialSourceWriteAndClose(t *testing.T) {
 	p := &pipePort{data: []byte("x\n"), done: make(chan struct{})}
 	src := NewSerialSource(p)
 	if n, err := src.Write([]byte("cmd")); err != nil || n != 3 {
-		t.Errorf("Write 返回 (%d, %v), 期望 (3, nil)", n, err)
+		t.Errorf("Write returned (%d, %v), want (3, nil)", n, err)
 	}
 	if err := src.Close(); err != nil {
-		t.Errorf("Close 返回错误: %v", err)
+		t.Errorf("Close returned error: %v", err)
 	}
 	if err := src.Close(); err != nil {
-		t.Errorf("重复 Close 应幂等, 得到: %v", err)
+		t.Errorf("repeated Close should be idempotent, got: %v", err)
 	}
 }

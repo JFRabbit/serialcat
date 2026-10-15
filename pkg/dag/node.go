@@ -2,30 +2,31 @@ package dag
 
 import "context"
 
-// Node 是一个处理单元。MVP 支持两类：
-//   - source：无入边，Run 里生产 Item 并发射到 Out
-//   - node（process/sink）：从 in 读，处理，可选写 Out
+// Node is a processing unit. The MVP supports two kinds:
+//   - source: no incoming edges, produces Items in Run and emits them to Out
+//   - node (process/sink): reads from in, processes, optionally writes to Out
 //
-// 传输单元固定为 []Item（批量）。批量是"内部搬运手段"，节点的业务逻辑
-// 仍按 Item 逐个处理；批量可减少 channel 往返、降低分配，显著提升吞吐。
+// The transport unit is fixed to []Item (batch). Batching is an "internal
+// moving mechanism": node business logic still processes Items one by one;
+// batching reduces channel round-trips and allocations, significantly boosting throughput.
 type Node interface {
-	// Name 返回节点 id（config 中唯一）。
+	// Name returns the node id (unique in config).
 	Name() string
-	// Run 运行主逻辑，直到 in 关闭（源结束）或 ctx 结束/出错。
-	// in 对 source 型节点为 nil。
+	// Run runs the main logic until in closes (source ends) or ctx ends/errors.
+	// in is nil for source-type nodes.
 	Run(ctx context.Context, in <-chan []Item) error
 }
 
-// SourceNode 是无入边的节点（文件/串口/stdin）。
+// SourceNode is a node without incoming edges (file/serial/stdin).
 type SourceNode interface {
 	Node
-	// Out 返回节点用于发射 Item 批次的输出 channel，由引擎消费。
+	// Out returns the output channel the node emits Item batches to, consumed by the engine.
 	Out() <-chan []Item
 }
 
-// ProcessNode 是普通节点（过滤/加工/输出）。sink 型无输出，Out 返回 nil,false。
+// ProcessNode is a regular node (filter/process/output). Sink-type nodes have no output and Out returns nil,false.
 type ProcessNode interface {
 	Node
-	// Out 返回节点的输出 channel（每个值为一批 []Item）；sink 型返回 nil,false。
+	// Out returns the node's output channel (each value is a batch of []Item); sink-type nodes return nil,false.
 	Out() (chan []Item, bool)
 }

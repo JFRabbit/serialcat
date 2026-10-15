@@ -7,7 +7,7 @@ import (
 	"github.com/JFRabbit/serialcat/pkg/config"
 )
 
-// node 是构造测试用例的简写。
+// node is a shorthand for building test cases.
 func node(id, kind, typ string, from ...string) config.NodeConfig {
 	return config.NodeConfig{ID: id, Kind: kind, Type: typ, From: from}
 }
@@ -16,10 +16,10 @@ func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
 		graph   []config.NodeConfig
-		wantErr string // 期望的错误子串；为空表示应通过
+		wantErr string // expected error substring; empty means it should pass
 	}{
 		{
-			name: "合法单链 source-filter-sink",
+			name: "valid single chain source-filter-sink",
 			graph: []config.NodeConfig{
 				node("a", "source", "file"),
 				node("b", "filter", "grep", "a"),
@@ -27,7 +27,7 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		{
-			name: "合法 DAG：source 扇出到多个下游",
+			name: "valid DAG: source fans out to multiple downstreams",
 			graph: []config.NodeConfig{
 				node("a", "source", "file"),
 				node("b", "filter", "grep", "a"),
@@ -36,87 +36,87 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		{
-			name:  "空图（无节点）合法",
+			name:  "empty graph (no nodes) is valid",
 			graph: []config.NodeConfig{},
 		},
 		{
-			name: "空 id 报错",
+			name: "empty id errors",
 			graph: []config.NodeConfig{
 				node("", "source", "file"),
 			},
-			wantErr: "id 不能为空",
+			wantErr: "id must not be empty",
 		},
 		{
-			name: "重复 id 报错",
+			name: "duplicate id errors",
 			graph: []config.NodeConfig{
 				node("a", "source", "file"),
 				node("a", "filter", "grep", "a"),
 			},
-			wantErr: "重复节点 id",
+			wantErr: "duplicate node id",
 		},
 		{
-			name: "缺少 type 报错",
+			name: "missing type errors",
 			graph: []config.NodeConfig{
 				node("a", "source", ""),
 			},
-			wantErr: "缺少 type",
+			wantErr: "missing type",
 		},
 		{
-			name: "非法 kind 报错",
+			name: "invalid kind errors",
 			graph: []config.NodeConfig{
 				node("a", "transformer", "file"),
 			},
-			wantErr: "kind 非法",
+			wantErr: "invalid kind",
 		},
 		{
-			name: "空 kind 视为非法",
+			name: "empty kind treated as invalid",
 			graph: []config.NodeConfig{
 				node("a", "", "file"),
 			},
-			wantErr: "kind 非法",
+			wantErr: "invalid kind",
 		},
 		{
-			name: "source 不应有 from 报错",
+			name: "source must not have from errors",
 			graph: []config.NodeConfig{
 				node("a", "source", "file"),
 				node("b", "source", "file", "a"),
 			},
-			wantErr: "不应有 from",
+			wantErr: "must not have from",
 		},
 		{
-			name: "非 source 缺 from 报错",
+			name: "non-source missing from errors",
 			graph: []config.NodeConfig{
 				node("a", "sink", "console"),
 			},
-			wantErr: "没有 from",
+			wantErr: "has no from",
 		},
 		{
-			name: "引用不存在的上游报错",
+			name: "referencing nonexistent upstream errors",
 			graph: []config.NodeConfig{
 				node("a", "source", "file"),
 				node("b", "filter", "grep", "ghost"),
 			},
-			wantErr: "引用不存在的上游",
+			wantErr: "references nonexistent upstream",
 		},
 		{
-			name: "sink 作为上游被引用报错",
+			name: "sink referenced as upstream errors",
 			graph: []config.NodeConfig{
 				node("a", "source", "file"),
 				node("b", "sink", "console", "a"),
 				node("c", "filter", "grep", "b"),
 			},
-			wantErr: "不能作为上游",
+			wantErr: "cannot be used as upstream",
 		},
 		{
-			name: "两节点自环报错",
+			name: "two-node self-cycle errors",
 			graph: []config.NodeConfig{
 				node("a", "filter", "grep", "b"),
 				node("b", "filter", "grep", "a"),
 			},
-			wantErr: "配置成环",
+			wantErr: "config forms a cycle",
 		},
 		{
-			name: "长环报错（source 在环外）",
+			name: "long cycle errors (source outside the cycle)",
 			graph: []config.NodeConfig{
 				node("a", "source", "file"),
 				node("b", "filter", "grep", "a"),
@@ -125,7 +125,7 @@ func TestValidate(t *testing.T) {
 				node("e", "process", "script", "d"),
 				node("f", "sink", "console", "c"),
 			},
-			wantErr: "配置成环",
+			wantErr: "config forms a cycle",
 		},
 	}
 
@@ -135,15 +135,15 @@ func TestValidate(t *testing.T) {
 			err := cfg.Validate()
 			if tt.wantErr == "" {
 				if err != nil {
-					t.Fatalf("期望通过，实际报错: %v", err)
+					t.Fatalf("expected to pass, got error: %v", err)
 				}
 				return
 			}
 			if err == nil {
-				t.Fatalf("期望报错包含 %q，实际通过", tt.wantErr)
+				t.Fatalf("expected error containing %q, but passed", tt.wantErr)
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("期望错误包含 %q，实际: %v", tt.wantErr, err)
+				t.Fatalf("expected error containing %q, got: %v", tt.wantErr, err)
 			}
 		})
 	}

@@ -8,44 +8,45 @@ import (
 	"sync/atomic"
 )
 
-// defaultBufSize 是每条边默认缓冲的批次数（背压）。
-// 传输单元为一批 []Item（单批可达 BatchMaxBytes≈64KB），因此缓冲按批计数而非按行，
-// 值不宜过大，否则会在内存中积压大量日志。
+// defaultBufSize is the default number of batches buffered per edge (backpressure).
+// The transport unit is a batch of []Item (a single batch can reach BatchMaxBytes≈64KB),
+// so the buffer is counted in batches rather than lines; keep the value small,
+// otherwise a large amount of logs would pile up in memory.
 const defaultBufSize = 128
 
-// Edge 描述一条有向连接：from 的输出送往 to。
+// Edge describes a directed connection: the output of From is sent to To.
 type Edge struct {
 	From string
 	To   string
 	Buf  int
 }
 
-// Graph 是一个由 Node 组成的 DAG。
+// Graph is a DAG composed of Nodes.
 type Graph struct {
 	Nodes map[string]Node
 	Edges []Edge
 }
 
-// NewGraph 构造空图。
+// NewGraph creates an empty graph.
 func NewGraph() *Graph { return &Graph{Nodes: make(map[string]Node)} }
 
-// AddNode 添加节点。
+// AddNode adds a node.
 func (g *Graph) AddNode(n Node) { g.Nodes[n.Name()] = n }
 
-// AddEdge 添加 from→to 连边；Buf<=0 时用默认值。
+// AddEdge adds a from→to edge; Buf<=0 falls back to the default value.
 func (g *Graph) AddEdge(from, to string, buf int) {
 	g.Edges = append(g.Edges, Edge{From: from, To: to, Buf: buf})
 }
 
-// NodeFactory 由 config 构建指定节点。
+// NodeFactory builds a node of the given kind from config.
 type NodeFactory func(name, kind string, cfg map[string]any) (Node, error)
 
-// Run 执行整个 DAG：
-//  1. 为每个下游(to)建缓冲 channel（扇入合并的写入端）。
-//  2. 启动每个节点自身：source 无入边，接收到 nil；其余读各自缓冲。
-//  3. 每个上游(from)一个扇出 goroutine：读取其 Out，广播复制到所有下游。
-//  4. EOS 传播：上游 Out 关闭 → 该 writer 结束 → 下游计数 "-1" → 归零关闭下游缓冲。
-//     下游节点读到缓冲关闭即结束，完成自身的 Flush。
+// Run executes the whole DAG:
+//  1. Create a buffered channel for each downstream (to) — the write side of fan-in merging.
+//  2. Start each node itself: sources have no incoming edges and receive nil; the rest read their own buffers.
+//  3. One fan-out goroutine per upstream (from): reads its Out and broadcasts copies to all downstreams.
+//  4. EOS propagation: upstream Out closes → that writer ends → downstream counter "-1" → close the downstream buffer at zero.
+//     A downstream node reading a closed buffer ends and performs its own Flush.
 func (g *Graph) Run(actx context.Context) error {
 	var (
 		errMu  sync.Mutex
@@ -61,8 +62,8 @@ func (g *Graph) Run(actx context.Context) error {
 	ctx, cancel := context.WithCancel(actx)
 	defer cancel()
 
-	// 1. 建下游缓冲 + 记录有效上游输出。
-	outs := map[string]<-chan []Item{} // from -> out（仅有效输出节点）
+	// 1. Build downstream buffers + record valid upstream outputs.
+	outs := map[string]<-chan []Item{} // from -> out (valid output nodes only)
 	for id, n := range g.Nodes {
 		if s, ok := n.(SourceNode); ok {
 			outs[id] = s.Out()
@@ -73,16 +74,16 @@ func (g *Graph) Run(actx context.Context) error {
 		}
 	}
 
-	buffers := map[string]chan []Item{} // to -> 缓冲（元素为一批 []Item）
-	writeCount := map[string]*int32{}   // to -> 剩余 writer 数（扇入合并）
+	buffers := map[string]chan []Item{} // to -> buffer (elements are batches of []Item)
+	writeCount := map[string]*int32{}   // to -> remaining writer count (fan-in merging)
 	closeOnce := map[string]*sync.Once{}
 
 	for _, e := range g.Edges {
 		if _, has := outs[e.From]; !has {
-			continue // 来源不是有效输出节点，跳过
+			continue // the source is not a valid output node, skip
 		}
 		if ch, ok := buffers[e.To]; ok {
-			// 已建过
+			// already created
 			_ = ch
 		} else {
 			buf := e.Buf
@@ -96,10 +97,10 @@ func (g *Graph) Run(actx context.Context) error {
 			writeCount[e.To] = &n
 			closeOnce[e.To] = &sync.Once{}
 		}
-		*writeCount[e.To]++ // fan_in writer 计数
+		*writeCount[e.To]++ // fan-in writer count
 	}
 
-	// 2. 启动节点自身。
+	// 2. Start the nodes themselves.
 	var wg sync.WaitGroup
 	for id, n := range g.Nodes {
 		nn := n
@@ -117,8 +118,8 @@ func (g *Graph) Run(actx context.Context) error {
 		}()
 	}
 
-	// 3. 扇出 + EOS 传播。
-	// 下游 group：from -> []to
+	// 3. Fan-out + EOS propagation.
+	// downstream group: from -> []to
 	deps := map[string][]string{}
 	for _, e := range g.Edges {
 		if _, has := outs[e.From]; !has {
@@ -139,7 +140,7 @@ func (g *Graph) Run(actx context.Context) error {
 		go func() {
 			defer wg.Done()
 			defer func() {
-				// 该上游结束：每个下游计数 -1
+				// The upstream ends: decrement each downstream counter by 1
 				for _, to := range deps[f] {
 					if cnt, ok := writeCount[to]; ok {
 						if atomic.AddInt32(cnt, -1) == 0 {
@@ -151,9 +152,9 @@ func (g *Graph) Run(actx context.Context) error {
 			for {
 				select {
 				case batch, ok := <-o:
-					if !ok {
-						return // 上游 Out 关闭 = EOS
-					}
+						if !ok {
+							return // upstream Out closed = EOS
+						}
 					for _, dch := range down {
 						select {
 						case dch <- batch:
@@ -162,7 +163,7 @@ func (g *Graph) Run(actx context.Context) error {
 						}
 					}
 				case <-ctx.Done():
-					// 上游因错误/取消而终止（未关闭 Out）：同样结束，避免 wg.Wait 悬挂。
+					// The upstream terminated due to an error/cancel (Out not closed): also end, to avoid wg.Wait hanging.
 					return
 				}
 			}

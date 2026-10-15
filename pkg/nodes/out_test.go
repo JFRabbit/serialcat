@@ -12,7 +12,7 @@ import (
 	"github.com/JFRabbit/serialcat/pkg/dag"
 )
 
-// feedBatches 把若干批次写入 in 后关闭，模拟上游 EOS。
+// feedBatches writes several batches into in then closes it, simulating upstream EOS.
 func feedBatches(in chan<- []dag.Item, batches [][]dag.Item) {
 	for _, b := range batches {
 		in <- b
@@ -29,8 +29,9 @@ func itemBatch(texts ...string) []dag.Item {
 	return items
 }
 
-// TestFileSinkRunRecreate 覆盖运行期文件被外部删除后的重建分支：
-// 写完第一行后删除目标文件，后续行应触发重建（同名能建则继续同名），数据不丢。
+// TestFileSinkRunRecreate covers the recreate branch when the file is externally deleted mid-run:
+// after the first line is written, the target file is deleted; subsequent lines should trigger
+// recreation (same name when creatable), with no data lost.
 func TestFileSinkRunRecreate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "out.log")
@@ -41,43 +42,44 @@ func TestFileSinkRunRecreate(t *testing.T) {
 	go func() { done <- sink.Run(context.Background(), in) }()
 
 	in <- itemBatch("line-1")
-	// 等第一行落盘后删掉文件，模拟外部移走。
+	// Wait for the first line to hit the disk, then delete the file, simulating an external move.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		if _, err := os.Stat(path); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("等待首行落盘超时")
+			t.Fatal("timed out waiting for first line to be written")
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	if err := os.Remove(path); err != nil {
-		t.Fatalf("删除目标文件: %v", err)
+		t.Fatalf("remove target file: %v", err)
 	}
-	// 第二批：应走重建分支，写入同名新文件。
+	// Second batch: should take the recreate branch and write to a new same-named file.
 	in <- itemBatch("line-2", "line-3")
 	close(in)
 
 	if err := <-done; err != nil {
-		t.Fatalf("Run 返回错误: %v", err)
+		t.Fatalf("Run returned error: %v", err)
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("读取重建后的文件: %v", err)
+		t.Fatalf("read recreated file: %v", err)
 	}
-	// line-1 在被删的旧 fd 上（已随文件删除），重建文件只承接删除之后的数据。
+	// line-1 was on the old fd (already gone with the deleted file); the recreated file only carries post-delete data.
 	got := strings.TrimRight(string(data), "\n")
 	if got != "line-2\nline-3" {
-		t.Fatalf("重建后内容不对，得到 %q", got)
+		t.Fatalf("content after recreate is wrong, got %q", got)
 	}
 }
 
-// TestFileSinkRunDirOccupiedMidRun 覆盖运行期同名被目录占用的回退分支：
-// 文件被删且同名目录占位后，os.Stat 对目录仍成功（不会走重建），
-// 行写入旧的已删除 fd 不报错，Run 应整体顺利完成、不因异常中断。
-// 真正的同名重建递增后缀逻辑见 TestRecreateSinkFileDirOccupied。
+// TestFileSinkRunDirOccupiedMidRun covers the fallback branch where the same name is occupied
+// by a directory mid-run: after the file is deleted and a same-named directory occupies the spot,
+// os.Stat on the directory still succeeds (no recreate), the line is written to the old deleted fd
+// without error, and Run completes successfully without abnormal interruption.
+// The actual same-name-with-increasing-suffix recreate logic is covered by TestRecreateSinkFileDirOccupied.
 func TestFileSinkRunDirOccupiedMidRun(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "out.log")
@@ -94,66 +96,66 @@ func TestFileSinkRunDirOccupiedMidRun(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("等待首行落盘超时")
+			t.Fatal("timed out waiting for first line to be written")
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	if err := os.Remove(path); err != nil {
-		t.Fatalf("删除原文件: %v", err)
+		t.Fatalf("remove original file: %v", err)
 	}
 	if err := os.Mkdir(path, 0o755); err != nil {
-		t.Fatalf("放同名目录: %v", err)
+		t.Fatalf("create directory with same name: %v", err)
 	}
 
 	in <- itemBatch("after-dir")
 	close(in)
 	if err := <-done; err != nil {
-		t.Fatalf("Run 返回错误: %v", err)
+		t.Fatalf("Run returned error: %v", err)
 	}
-	// 同名路径现在是目录，Run 不应再往里写，也不应报错。
+	// The same-named path is now a directory; Run should not write into it, nor report an error.
 	if info, err := os.Stat(path); err != nil || !info.IsDir() {
-		t.Fatalf("同名目录应保持为目录: %v", err)
+		t.Fatalf("the same-name path should remain a directory: %v", err)
 	}
 }
 
-// TestRecreateSinkFileDirOccupied 直接覆盖 recreateSinkFile 的同名被目录占用分支。
+// TestRecreateSinkFileDirOccupied directly covers recreateSinkFile's same-name-occupied-by-directory branch.
 func TestRecreateSinkFileDirOccupied(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.log")
 	if err := os.Mkdir(path, 0o755); err != nil {
-		t.Fatalf("放同名目录: %v", err)
+		t.Fatalf("create directory with same name: %v", err)
 	}
 
 	f, alt, err := recreateSinkFile(path)
 	if err != nil {
-		t.Fatalf("recreateSinkFile 返回错误: %v", err)
+		t.Fatalf("recreateSinkFile returned error: %v", err)
 	}
 	defer f.Close()
 	if alt == path {
-		t.Fatalf("同名被目录占用时应改用替代名，仍返回 %s", alt)
+		t.Fatalf("when the same name is occupied by a directory, an alternative name should be used, still got %s", alt)
 	}
 	if filepath.Dir(alt) != dir || !strings.HasPrefix(filepath.Base(alt), "x-") {
-		t.Fatalf("替代名不符合约定: %s", alt)
+		t.Fatalf("alternative name does not follow convention: %s", alt)
 	}
 }
 
-// TestRecreateSinkFileSameName 覆盖同名可建时直接复用原名的分支。
+// TestRecreateSinkFileSameName covers the branch where the same name is creatable and reused directly.
 func TestRecreateSinkFileSameName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "y.log")
 	f, alt, err := recreateSinkFile(path)
 	if err != nil {
-		t.Fatalf("recreateSinkFile 返回错误: %v", err)
+		t.Fatalf("recreateSinkFile returned error: %v", err)
 	}
 	defer f.Close()
 	if alt != path {
-		t.Fatalf("同名可建时应返回原名，得到 %s", alt)
+		t.Fatalf("when the same name can be created, the original name should be returned, got %s", alt)
 	}
 	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("文件应已创建: %v", err)
+		t.Fatalf("file should have been created: %v", err)
 	}
 }
 
-// TestConsoleRun 注入 bytes.Buffer 到 Console.w，验证逐行打印输出。
+// TestConsoleRun injects a bytes.Buffer into Console.w, verifying line-by-line print output.
 func TestConsoleRun(t *testing.T) {
 	c := NewConsole("c")
 	var buf bytes.Buffer
@@ -165,9 +167,9 @@ func TestConsoleRun(t *testing.T) {
 	close(in)
 
 	if err := c.Run(context.Background(), in); err != nil {
-		t.Fatalf("Run 返回错误: %v", err)
+		t.Fatalf("Run returned error: %v", err)
 	}
 	if got := buf.String(); got != "a\nb\nc\n" {
-		t.Fatalf("输出不对，得到 %q", got)
+		t.Fatalf("output is wrong, got %q", got)
 	}
 }

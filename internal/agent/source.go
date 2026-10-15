@@ -12,20 +12,20 @@ import (
 	"github.com/JFRabbit/serialcat/internal/logger"
 )
 
-// SerialSource 串口行源：后台单协程读串口，按行广播给订阅者。
-// 订阅者无缓冲时丢弃该帧（背压隔离：串口读取永不因慢订阅者被拖缓）。
+// SerialSource is a serial line source: a single background goroutine reads the serial port and broadcasts lines to subscribers.
+// Frames are dropped when subscribers have no buffer (backpressure isolation: serial reading is never slowed down by slow subscribers).
 type SerialSource struct {
 	port io.ReadWriteCloser
 	mu   sync.Mutex
 	subs map[chan Frame]struct{}
 }
 
-// NewSerialSource 用已打开的串口构造行源。
+// NewSerialSource builds a line source from an already-opened serial port.
 func NewSerialSource(p io.ReadWriteCloser) *SerialSource {
 	return &SerialSource{port: p, subs: map[chan Frame]struct{}{}}
 }
 
-// Subscribe 注册一个订阅者；ctx 取消时自动退订并关闭返回的 channel。
+// Subscribe registers a subscriber; when ctx is canceled the subscription is removed and the returned channel is closed.
 func (s *SerialSource) Subscribe(ctx context.Context) (<-chan Frame, error) {
 	ch := make(chan Frame, 512)
 	s.mu.Lock()
@@ -42,7 +42,7 @@ func (s *SerialSource) Subscribe(ctx context.Context) (<-chan Frame, error) {
 	return ch, nil
 }
 
-// Run 阻塞读取串口并按行广播，直到 ctx 取消或串口出错/关闭。
+// Run blocks reading the serial port and broadcasting by line, until ctx is canceled or the port errors/closes.
 func (s *SerialSource) Run(ctx context.Context) error {
 	br := bufio.NewReader(s.port)
 	for {
@@ -55,7 +55,7 @@ func (s *SerialSource) Run(ctx context.Context) error {
 				return ctx.Err()
 			}
 			if errors.Is(err, io.EOF) {
-				logger.Info("串口达到 EOF，串口已关闭")
+				logger.Info("serial port reached EOF, port closed")
 				return nil
 			}
 			return err
@@ -63,10 +63,10 @@ func (s *SerialSource) Run(ctx context.Context) error {
 	}
 }
 
-// Write 透传下行命令到串口（阶段② TX 预留）。
+// Write passes downstream commands through to the serial port (TX phase reserved).
 func (s *SerialSource) Write(b []byte) (int, error) { return s.port.Write(b) }
 
-// Close 关闭底层串口。
+// Close closes the underlying serial port.
 func (s *SerialSource) Close() error { return s.port.Close() }
 
 func (s *SerialSource) broadcast(f Frame) {
@@ -75,7 +75,7 @@ func (s *SerialSource) broadcast(f Frame) {
 	for ch := range s.subs {
 		select {
 		case ch <- f:
-		default: // 订阅者太慢则丢弃，避免拖慢串口读取（背压）
+		default: // drop frames when a subscriber is too slow to avoid slowing down serial reading (backpressure)
 		}
 	}
 }

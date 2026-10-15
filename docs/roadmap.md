@@ -1,72 +1,72 @@
-# serialcat 演进规划（roadmap.md）
+# serialcat Roadmap (roadmap.md)
 
-> 面向**效果/演进**：讲"现在有哪些节点、能满足什么、后面打算做什么"。
-> 使用的详细说明在 `docs/usage.md`，架构见根目录 `README.md`。
+> For **outcomes/evolution**: covers "what nodes exist today, what they can do, and what's planned next".
+> Detailed usage lives in `docs/usage.md`; architecture is in the root `README.md`.
 
-## 1. 现状：日常使用已够用
+## 1. Current State: Good Enough for Daily Use
 
-serialcat 已经覆盖串口日志处理的两条主线，**日常使用不需要再等新功能**：
+serialcat already covers the two main threads of serial log processing; **daily use does not need to wait for new features**:
 
-- **实时看串口**：Windows 上 `agent` 采集 + 远端拉流打印，断线自动重连。
-- **本地筛日志**：读文件 + grep + 打印/落盘。
-- **向串口下发命令**：`send` 远程写（有回显）或本地裸发。
-- **自更新**：`update` 从发布源拉新版本。
+- **Watch serial in real time**: `agent` on Windows collects + remote streaming and printing, with auto-reconnect on disconnect.
+- **Filter logs locally**: read file + grep + print / persist to disk.
+- **Send commands to the serial port**: `send` remote write (with echo) or local blind send.
+- **Self-update**: `update` pulls the latest version from the release source.
 
-一句话：**当前版本已满足日常固件/串口调试诉求。**
+In short: **the current version already satisfies day-to-day firmware/serial debugging needs.**
 
 ---
 
-## 2. 已实现的节点
+## 2. Implemented Nodes
 
-配置里通过 `kind:type` 引用。目前可用的完整清单：
+Referenced in configs via `kind:type`. The full list currently available:
 
-| kind:type | 用途 | 示例参数 |
+| kind:type | Purpose | Example parameters |
 |---|---|---|
-| `source:file` | 从文件逐行读日志 | `path`（支持 `{ts}` 时间戳） |
-| `source:serial-remote` | 从远端 agent 拉串口流（跨平台） | `url` |
-| `source:serial` | 本机直连串口读（仅 Windows） | `port`（可省略自动探测）、`baud` |
-| `filter:grep` | 正则过滤，命中才往下传 | `match` |
-| `process:script` | 把一批日志交给外部脚本加工 | `command`、`args` |
-| `sink:console` | 打印到屏幕 | — |
-| `sink:file` | 写入文件（自动建父目录） | `path`（可省略，支持 `{ts}`） |
+| `source:file` | Read logs from a file line by line | `path` (supports `{ts}` timestamps) |
+| `source:serial-remote` | Pull a serial stream from a remote agent (cross-platform) | `url` |
+| `source:serial` | Connect to a local serial port to read (Windows only) | `port` (optional, auto-detected), `baud` |
+| `filter:grep` | Regex filtering; only matching lines flow on | `match` |
+| `process:script` | Hand a batch of logs to an external script for processing | `command`, `args` |
+| `sink:console` | Print to screen | — |
+| `sink:file` | Write to a file (auto-creates parent directories) | `path` (optional, supports `{ts}`) |
 
-> `filter:grep` 的参数 `match` 目前是**单个正则**；多关键词 OR 场景建议用正则的 `|` 形式（如 `"fail|null|error"`）。
-
----
-
-## 3. 能力边界
-
-一些地方"够用但不追求完美"，先明确现状，避免误解：
-
-- **插件（process）只开了个头**：现在只有 `process:script` 一种——通过 stdin/stdout 传递 JSON 数据给外部脚本，工具只当"通信壳"，不背脚本的运行环境。**后续是否扩展（如流式往返、更多协议）视真实需求而定，当前不做过度设计。**
-- **串口方向**：
-  - 读：agent 拉流 / 本机直连都支持。
-  - 写：`send` 命令可下发，但"发送端写节点进 DAG 配置"暂不做（命令按运营期需要下发，不进流水配置）。
-- **本地写**：仅 Windows。
+> `filter:grep`'s parameter `match` is currently a **single regex**; for multi-keyword OR scenarios, use the regex `|` form (e.g. `"fail|null|error"`).
 
 ---
 
-## 4. 后续打算（按需求驱动，不做预设堆功能）
+## 3. Capability Boundaries
 
-以下内容**不是现在就要做**，而是存在明确方向、等有需要再推进。重要度从上到下：
+Some areas are "good enough but not polished"; the current state is stated explicitly to avoid misunderstanding:
 
-| 事项 | 说明 | 触发条件 |
+- **Plugins (process) are only a start**: today there is only `process:script` — JSON data is passed to the external script via stdin/stdout, and the tool only acts as a "communication shell", not the host of the script's runtime. **Whether to extend (e.g. streaming round-trips, more protocols) depends on real needs; no over-engineering for now.**
+- **Serial direction**:
+  - Read: both agent streaming and local direct connection are supported.
+  - Write: `send` can send commands, but a "send-side write node inside the DAG config" is not planned (commands are issued at operational time, not part of the pipeline config).
+- **Local writes**: Windows only.
+
+---
+
+## 4. Future Plans (demand-driven, no speculative features)
+
+The items below are **not to be done now**, but have a clear direction and will be advanced when needed. Priority, top to bottom:
+
+| Item | Description | Trigger condition |
 |---|---|---|
-| **WebUI** | 复用串口拉流与发送接口，浏览器里分窗口看日志、发命令 | 有浏览器可视化诉求时 |
-| **插件协议扩展** | 现在单一 stdio；若需要流式往返/非结构化数据再扩展 | 有真实复杂插件的场景 |
-| **多关键词过滤** | 让 `filter:grep` 支持数组（`match: [A, B]`），等价于 OR | 常见需求，随时可做 |
-| **断线/落盘的进一步体验优化** | 例如"无需用户手动配落盘 sink，默认自动承担" | 使用中觉得别扭就改 |
-| **DAG 语义校验细化** | 进一步约束节点种类之间的连接关系 | 配置复杂后需要更强自检 |
+| **WebUI** | Reuse the serial streaming and send interfaces; view logs in split windows and send commands from a browser | When there is a browser-visualization need |
+| **Plugin protocol extension** | Currently a single stdio protocol; extend if streaming round-trips / unstructured data are needed | When there are real complex plugin scenarios |
+| **Multi-keyword filtering** | Let `filter:grep` accept an array (`match: [A, B]`), equivalent to OR | Common need; can be done any time |
+| **Better reconnect/persist UX** | e.g. "no manual persist sink needed; done automatically by default" | When it feels awkward in practice |
+| **Finer DAG semantic validation** | Further constrain connection rules between node kinds | When configs get complex and need stronger self-checks |
 
-> 有方向但暂缓的候选记录在 `docs/limitation.md` 的"可选优化方向"，规划上都是**按需驱动**，不预支工作量。
+> Directional-but-deferred candidates are recorded under "Optional optimization directions" in `docs/limitation.md`; the planning is **demand-driven** across the board, no upfront work.
 
 ---
 
-## 5. 明确不做（避免过度设计）
+## 5. Explicitly Out of Scope (avoiding over-engineering)
 
-- **不引入服务端常驻框架 / 分布式 / RPC**：保持轻量本地工具。
-- **不内置脚本运行时**（如 Python）：外部插件由执行机器自己提供环境。
-- **不做 WebUI 之外的一整套前端体系**：前端仅是"再看/再操作"的入口，不是核心。
-- **不预设告警/分析/LLM 全链条**：这些是设计蓝图里的远期方向，需强需求再投入。
+- **No server-side resident framework / distributed system / RPC**: keep it a lightweight local tool.
+- **No bundled script runtimes** (e.g. Python): external plugins provide their own environment on the executing machine.
+- **No full frontend ecosystem beyond the WebUI**: the frontend is only an entry point to "view/operate again", not the core.
+- **No preset alert/analysis/LLM chain**: these are long-term directions in the design blueprint and will only be invested in when there is strong demand.
 
-> 设计和"不做的事"的完整蓝图见 `docs/design.md`（历史设计文档，与本文互补）。
+> The full blueprint for the design and the "out of scope" list lives in `docs/design.md` (historical design document, complementary to this file).

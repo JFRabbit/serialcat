@@ -1,21 +1,21 @@
-// Package constant 集中管理 CLI 的常量：应用名、flag 名、默认路径，杜绝魔法字符串。
+// Package constant centralizes CLI constants: app name, flag names, default paths, to avoid magic strings.
 package constant
 
-// AppName 应用名。
+// AppName is the application name.
 const AppName = "serialcat"
 
-// 默认值
+// Defaults
 const (
-	// DefaultConfigFile 默认 DAG 配置文件路径。
+	// DefaultConfigFile is the default DAG config file path.
 	DefaultConfigFile = "dag.yaml"
 )
 
-// Flag 名
+// Flag names
 const (
-	// FlagConfig 配置文件路径 flag。
+	// FlagConfig is the config file path flag.
 	FlagConfig = "config"
-	// FlagShort 版本命令的短输出 flag。
+	// FlagShort is the short-output flag of the version command.
 	FlagShort = "short"
-	// FlagDebug 调试日志 flag。
+	// FlagDebug is the debug logging flag.
 	FlagDebug = "debug"
 )

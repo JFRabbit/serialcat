@@ -13,15 +13,18 @@ import (
 	"github.com/JFRabbit/serialcat/pkg/dag"
 )
 
-// remoteFrame 对应远端 agent 流式下发的单条串口记录（NDJSON）。fields 与内部 agent 对齐。
+// remoteFrame corresponds to a single serial record streamed by the remote agent
+// (NDJSON). Its fields align with the internal agent.
 type remoteFrame struct {
 	Ts   time.Time `json:"ts"`
 	Text string    `json:"text"`
 }
 
-// SerialRemote 是 source 节点：从远端"serialcat agent"服务的 /api/stream 拉取串口行，
-// 包装成 dag.Item 后按批发射，接入上游同一套批量 DAG。
-// 该节点纯 HTTP、跨平台，串口物理能力由 Windows 上的 agent 提供。
+// SerialRemote is a source node: pulls serial lines from the remote
+// "serialcat agent" service's /api/stream, wraps them into dag.Items and emits
+// them in batches, plugging into the same batched DAG as the upstream.
+// This node is pure HTTP and cross-platform; the physical serial capability is
+// provided by the agent running on Windows.
 type SerialRemote struct {
 	id     string
 	base   string
@@ -31,8 +34,9 @@ type SerialRemote struct {
 
 var _ dag.SourceNode = (*SerialRemote)(nil)
 
-// NewSerialRemote 构造远端串口来源节点。baseURL 形如 http://192.168.1.10:7100 或带尾斜杠;
-// 缺协议(如 192.168.1.10:7100)时自动补 http://。
+// NewSerialRemote builds a remote serial source node. baseURL looks like
+// http://192.168.1.10:7100 or with a trailing slash;
+// a missing scheme (e.g. 192.168.1.10:7100) is auto-prefixed with http://.
 func NewSerialRemote(id, baseURL string, buf int) *SerialRemote {
 	if buf <= 0 {
 		buf = 128
@@ -46,19 +50,21 @@ func NewSerialRemote(id, baseURL string, buf int) *SerialRemote {
 		id:     id,
 		base:   base,
 		out:    make(chan []dag.Item, buf),
-		client: &http.Client{Timeout: 0}, // 流式长连接，不设总超时
+		client: &http.Client{Timeout: 0}, // streaming long connection, no overall timeout
 	}
 }
 
-// Name 实现 dag.Node。
+// Name implements dag.Node.
 func (n *SerialRemote) Name() string { return n.id }
 
-// Out 实现 dag.SourceNode。
+// Out implements dag.SourceNode.
 func (n *SerialRemote) Out() <-chan []dag.Item { return n.out }
 
-// Run 连接远端流并批量发射。断线自动重连续流：每次接入一轮连接读取；
-// 终端中断不算 DAG 失败，而是打"断档"标记后退避重连。仅在 ctx 取消/永久错误时结束。
-// in 对 source 为 nil。
+// Run connects to the remote stream and emits in batches. Disconnections are
+// auto-reconnected: each connection consumes one round of reads; a broken
+// stream is not a DAG failure, but marks a "gap" and backs off before reconnecting.
+// It only ends on ctx cancel or a permanent error.
+// in is nil for sources.
 func (n *SerialRemote) Run(ctx context.Context, _ <-chan []dag.Item) error {
 	defer close(n.out)
 
@@ -67,7 +73,7 @@ func (n *SerialRemote) Run(ctx context.Context, _ <-chan []dag.Item) error {
 		body, perm, derr := n.dialStream(ctx)
 		if derr != nil {
 			if perm {
-				return derr // 永久错误（如 4xx/URL 配置错）：不再重试，让用户尽快发现
+				return derr // permanent error (e.g. 4xx/URL misconfigured): no retry, let the user notice quickly
 			}
 			if !sleepWithBackoff(ctx, &backoff) {
 				return ctx.Err()
@@ -75,13 +81,14 @@ func (n *SerialRemote) Run(ctx context.Context, _ <-chan []dag.Item) error {
 			continue
 		}
 
-		backoff = backoffBase // 连上后重置退避
+		backoff = backoffBase // reset backoff after a successful connection
 		_ = n.readLoop(ctx, body)
 		_ = body.Close()
 		if ctx.Err() != nil {
-			return ctx.Err() // 用户主动取消/退出，正常结束
+			return ctx.Err() // user-initiated cancel/exit, normal end
 		}
-		// 流中断：先向输出插入"断档"标记，再退避重连，做到连续不静默。
+		// Stream broken: first insert a "gap" marker into the output, then back off
+		// and reconnect, staying continuous rather than silent.
 		if gerr := n.emitGap(ctx); gerr != nil {
 			return gerr
 		}
@@ -91,8 +98,9 @@ func (n *SerialRemote) Run(ctx context.Context, _ <-chan []dag.Item) error {
 	}
 }
 
-// readLoop 消费一次已建立连接的远端流：解码 → 切批 → 发射，期间压缩 100ms 半批。
-// 返回 nil 表示 ctx 取消正常结束；返回 err 表示流中断（由外层重连）。
+// readLoop consumes one established remote stream connection: decode → split into
+// batches → emit, flushing partial batches every 100ms.
+// Returns nil for a normal ctx-cancel end; returns err for a broken stream (reconnected by the outer layer).
 func (n *SerialRemote) readLoop(ctx context.Context, body io.Reader) error {
 	dec := json.NewDecoder(body)
 	frames := make(chan remoteFrame, 64)
@@ -120,7 +128,7 @@ func (n *SerialRemote) readLoop(ctx context.Context, body io.Reader) error {
 
 	var batch []dag.Item
 	bytes := 0
-	// flush 发射当前半批（若非空）。
+	// flush emits the current partial batch (if non-empty).
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
@@ -140,7 +148,7 @@ func (n *SerialRemote) readLoop(ctx context.Context, body io.Reader) error {
 	for {
 		select {
 		case f := <-frames:
-			// 时间戳用 agent 下发值。
+			// The timestamp is the value sent by the agent.
 			batch = append(batch, dag.Item{Ts: f.Ts, Text: f.Text})
 			bytes += len(f.Text)
 			if len(batch) >= dag.BatchMaxItems || bytes >= dag.BatchMaxBytes {
@@ -149,12 +157,13 @@ func (n *SerialRemote) readLoop(ctx context.Context, body io.Reader) error {
 				}
 			}
 		case <-tick.C:
-			// 低速率/安静流：周期性地吐掉半批，降低端到端延迟。
+			// Low-rate/quiet stream: periodically flush the partial batch to reduce end-to-end latency.
 			if err := flush(); err != nil {
 				return err
 			}
 		case err := <-decErr:
-			// 尽力发射剩余半批，再报告中断（连续源"断连"=异常，但不结束，外层重连）。
+			// Flush the remaining partial batch as best effort, then report the break
+			// (a "disconnect" of a continuous source is an exception, but not the end; the outer layer reconnects).
 			if ferr := flush(); ferr != nil {
 				return ferr
 			}
@@ -165,11 +174,12 @@ func (n *SerialRemote) readLoop(ctx context.Context, body io.Reader) error {
 	}
 }
 
-// emitGap 向输出插入一条断档标记项，让下游（console/落盘）显式看到缺口。
+// emitGap inserts a gap-marker item into the output, letting downstream
+// (console/disk) explicitly see the gap.
 func (n *SerialRemote) emitGap(ctx context.Context) error {
 	gap := dag.Item{
 		Ts:   time.Now(),
-		Text: "……串口流中断，此处有断档……",
+		Text: "...... serial stream interrupted, gap here ......",
 		Meta: map[string]string{"gap": "break"},
 	}
 	select {
@@ -180,16 +190,18 @@ func (n *SerialRemote) emitGap(ctx context.Context) error {
 	}
 }
 
-// flushIdle 是低速率串口的半批周期发射间隔。
+// flushIdle is the periodic partial-batch flush interval for low-rate serial streams.
 const flushIdle = 100 * time.Millisecond
 
-// 重连退避：初始 500ms，指数增长封顶 30s，各次带随机抖动防多端齐撞。
+// Reconnect backoff: starts at 500ms, grows exponentially capped at 30s,
+// with random jitter each time to avoid multi-endpoint thundering herd.
 const (
 	backoffBase = 500 * time.Millisecond
 	backoffMax  = 30 * time.Second
 )
 
-// sleepWithBackoff 等待一次退避间隔（含抖动）并倍增 backoff。返回 false 表示 ctx 已取消。
+// sleepWithBackoff waits one backoff interval (with jitter) and doubles backoff.
+// Returns false if ctx has been cancelled.
 func sleepWithBackoff(ctx context.Context, backoff *time.Duration) bool {
 	jitter := time.Duration(rand.Int63n(int64(*backoff) / 2))
 	delay := *backoff + jitter
@@ -205,8 +217,9 @@ func sleepWithBackoff(ctx context.Context, backoff *time.Duration) bool {
 	return true
 }
 
-// dialStream 发起一次到 /api/stream 的请求，返回响应体。
-// perm 为 true 表示永久错误（4xx：URL 配错/鉴权失败），不应重试；否则视为可重连的瞬时错误。
+// dialStream makes one request to /api/stream and returns the response body.
+// perm is true for permanent errors (4xx: URL misconfigured/auth failure) which
+// must not be retried; anything else is treated as a transient reconnectable error.
 func (n *SerialRemote) dialStream(ctx context.Context) (io.ReadCloser, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, n.base+"/api/stream", nil)
 	if err != nil {
@@ -214,12 +227,12 @@ func (n *SerialRemote) dialStream(ctx context.Context) (io.ReadCloser, bool, err
 	}
 	resp, err := n.client.Do(req)
 	if err != nil {
-		return nil, false, err // 网络错：可重试
+		return nil, false, err // network error: retryable
 	}
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		_ = resp.Body.Close()
-		return nil, resp.StatusCode < 500, fmt.Errorf("远端串口代理 /api/stream 返回 %d: %s",
+		return nil, resp.StatusCode < 500, fmt.Errorf("remote serial agent /api/stream returned %d: %s",
 			resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return resp.Body, false, nil

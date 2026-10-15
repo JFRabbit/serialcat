@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// fakeSelectDriver 返回固定端口列表 / 固定错误的 fake serial.Driver，仅用于 selectPort 测试。
+// fakeSelectDriver is a fake serial.Driver returning a fixed port list / fixed error, used only for selectPort tests.
 type fakeSelectDriver struct {
 	ports []string
 	err   error
@@ -22,18 +22,18 @@ func (f *fakeSelectDriver) ListPorts() ([]string, error) {
 }
 
 func (f *fakeSelectDriver) Open(string, int) (io.ReadWriteCloser, error) {
-	return nil, errors.New("Open 不在本测试范围内")
+	return nil, errors.New("Open is out of scope for this test")
 }
 
-// withFakeStdin 把 os.Stdin 临时替换为给定内容，供多端口交互分支读取。
+// withFakeStdin temporarily replaces os.Stdin with the given content for the interactive multi-port branch.
 func withFakeStdin(t *testing.T, input string) {
 	t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("创建管道失败: %v", err)
+		t.Fatalf("creating pipe failed: %v", err)
 	}
 	if _, err := w.WriteString(input); err != nil {
-		t.Fatalf("写入管道失败: %v", err)
+		t.Fatalf("writing to pipe failed: %v", err)
 	}
 	w.Close()
 	old := os.Stdin
@@ -44,74 +44,74 @@ func withFakeStdin(t *testing.T, input string) {
 	})
 }
 
-// TestSelectPortListError 枚举端口失败时应原样返回错误。
+// TestSelectPortListError covers port enumeration failure returning the error as-is.
 func TestSelectPortListError(t *testing.T) {
-	want := errors.New("枚举失败")
+	want := errors.New("enumeration failed")
 	_, err := selectPort(&fakeSelectDriver{err: want})
 	if !errors.Is(err, want) {
-		t.Fatalf("应返回枚举错误 %v，实际 %v", want, err)
+		t.Fatalf("expected enumeration error %v, got %v", want, err)
 	}
 }
 
-// TestSelectPortNoPort 无可用串口时应报错提示用 --port 指定。
+// TestSelectPortNoPort covers the no-port case: an error should mention --port.
 func TestSelectPortNoPort(t *testing.T) {
 	_, err := selectPort(&fakeSelectDriver{ports: nil})
 	if err == nil || !strings.Contains(err.Error(), "--port") {
-		t.Fatalf("无串口时应报 --port 相关错误，实际 %v", err)
+		t.Fatalf("no-port case should error with a --port hint, got %v", err)
 	}
 }
 
-// TestSelectPortSingle 唯一串口应直接选中，不读 stdin。
+// TestSelectPortSingle covers the single-port case being auto-selected without reading stdin.
 func TestSelectPortSingle(t *testing.T) {
 	got, err := selectPort(&fakeSelectDriver{ports: []string{"COM5"}})
 	if err != nil {
-		t.Fatalf("单端口不应报错: %v", err)
+		t.Fatalf("single port should not error: %v", err)
 	}
 	if got != "COM5" {
-		t.Fatalf("应自动选中 COM5，实际 %q", got)
+		t.Fatalf("expected COM5 to be auto-selected, got %q", got)
 	}
 }
 
-// TestSelectPortMultiDefault 多串口时回车（空输入）应选中默认第 1 个。
+// TestSelectPortMultiDefault covers Enter (empty input) selecting the default first port.
 func TestSelectPortMultiDefault(t *testing.T) {
 	withFakeStdin(t, "\n")
 	got, err := selectPort(&fakeSelectDriver{ports: []string{"COM3", "COM5"}})
 	if err != nil {
-		t.Fatalf("回车默认选择不应报错: %v", err)
+		t.Fatalf("Enter default selection should not error: %v", err)
 	}
 	if got != "COM3" {
-		t.Fatalf("回车应选默认第 1 个 COM3，实际 %q", got)
+		t.Fatalf("Enter should select the default first port COM3, got %q", got)
 	}
 }
 
-// TestSelectPortMultiPick 多串口时输入序号应选中对应端口。
+// TestSelectPortMultiPick covers entering an index selecting the matching port.
 func TestSelectPortMultiPick(t *testing.T) {
 	withFakeStdin(t, "2\n")
 	got, err := selectPort(&fakeSelectDriver{ports: []string{"COM3", "COM5", "COM7"}})
 	if err != nil {
-		t.Fatalf("合法序号不应报错: %v", err)
+		t.Fatalf("a valid index should not error: %v", err)
 	}
 	if got != "COM5" {
-		t.Fatalf("序号 2 应选 COM5，实际 %q", got)
+		t.Fatalf("index 2 should select COM5, got %q", got)
 	}
 }
 
-// TestSelectPortMultiInvalid 多串口时非法输入（非数字 / 越界）应报错。
+// TestSelectPortMultiInvalid covers invalid input (non-numeric / out of range) erroring out.
 func TestSelectPortMultiInvalid(t *testing.T) {
 	cases := []struct {
 		name  string
 		input string
 	}{
-		{"非数字", "abc\n"},
-		{"越界上", "9\n"},
-		{"越界下", "0\n"},
+		{"non-numeric", "abc\n"},
+		{"out of range high", "9\n"},
+		{"out of range low", "0\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			withFakeStdin(t, c.input)
 			_, err := selectPort(&fakeSelectDriver{ports: []string{"COM3", "COM5"}})
-			if err == nil || !strings.Contains(err.Error(), "无效选择") {
-				t.Fatalf("输入 %q 应报无效选择错误，实际 %v", strings.TrimSpace(c.input), err)
+			if err == nil || !strings.Contains(err.Error(), "invalid selection") {
+				t.Fatalf("input %q should report an invalid selection error, got %v", strings.TrimSpace(c.input), err)
 			}
 		})
 	}

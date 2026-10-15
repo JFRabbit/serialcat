@@ -4,8 +4,8 @@ package updater
 
 import "os"
 
-// ReplaceExecutable 用新文件原子覆盖当前可执行文件。
-// 进程已加载到内存，Unix 下可直接覆盖正在运行的二进制。
+// ReplaceExecutable atomically overwrites the current executable with the new file.
+// The process is already loaded into memory, so on Unix the running binary can be overwritten directly.
 func ReplaceExecutable(target, newFile string) error {
 	if err := os.Chmod(newFile, 0o755); err != nil {
 		return err

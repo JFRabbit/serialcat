@@ -12,14 +12,14 @@ func TestNewSerialRemote_Normalize(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"缺协议自动补 http", "192.168.1.10:7100", "http://192.168.1.10:7100"},
-		{"去尾斜杠", "http://192.168.1.10:7100/", "http://192.168.1.10:7100"},
-		{"去多个尾斜杠", "http://host:7100///", "http://host:7100"},
-		{"去首尾空白", "  http://host:7100  ", "http://host:7100"},
-		{"空白加尾斜杠", "  host:7100/  ", "http://host:7100"},
-		{"https 保留", "https://host:7100", "https://host:7100"},
-		{"https 去尾斜杠", "https://host:7100/", "https://host:7100"},
-		{"带路径保留", "http://host:7100/sub/", "http://host:7100/sub"},
+		{"missing protocol auto-prefixes http", "192.168.1.10:7100", "http://192.168.1.10:7100"},
+		{"trims trailing slash", "http://192.168.1.10:7100/", "http://192.168.1.10:7100"},
+		{"trims multiple trailing slashes", "http://host:7100///", "http://host:7100"},
+		{"trims leading/trailing whitespace", "  http://host:7100  ", "http://host:7100"},
+		{"whitespace plus trailing slash", "  host:7100/  ", "http://host:7100"},
+		{"https preserved", "https://host:7100", "https://host:7100"},
+		{"https trims trailing slash", "https://host:7100/", "https://host:7100"},
+		{"path preserved", "http://host:7100/sub/", "http://host:7100/sub"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -34,49 +34,49 @@ func TestNewSerialRemote_Normalize(t *testing.T) {
 	}
 }
 
-// 小 backoff（纳秒级）让 sleepWithBackoff 立即返回，验证翻倍逻辑。
+// A tiny backoff (nanosecond-level) makes sleepWithBackoff return immediately, verifying the doubling logic.
 func TestSleepWithBackoff_Double(t *testing.T) {
 	ctx := context.Background()
-	backoff := time.Duration(2) // 2ns，jitter 区间为 [0,1)，实际 sleep 纳秒级
+	backoff := time.Duration(2) // 2ns, jitter range [0,1), actual sleep at nanosecond level
 	for i, want := range []time.Duration{4, 8, 16} {
 		if !sleepWithBackoff(ctx, &backoff) {
-			t.Fatalf("第 %d 次返回 false，want true", i)
+			t.Fatalf("call %d returned false, want true", i)
 		}
 		if backoff != want {
-			t.Fatalf("第 %d 次 backoff = %v, want %v", i, backoff, want)
+			t.Fatalf("call %d backoff = %v, want %v", i, backoff, want)
 		}
 	}
 }
 
-// ctx 已取消时应立即返回 false 且 backoff 不变。
+// With ctx already cancelled it should return false immediately and leave backoff unchanged.
 func TestSleepWithBackoff_Cancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	backoff := time.Second
 	if sleepWithBackoff(ctx, &backoff) {
-		t.Fatal("ctx 已取消仍返回 true")
+		t.Fatal("ctx cancelled but still returned true")
 	}
 	if backoff != time.Second {
-		t.Fatalf("取消时 backoff 被改动: %v", backoff)
+		t.Fatalf("backoff was changed on cancel: %v", backoff)
 	}
 }
 
-// 运行期中途取消：退避等待应被唤醒并返回 false。
+// Cancel mid-run: the backoff wait should be woken up and return false.
 func TestSleepWithBackoff_CancelDuringSleep(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	backoff := time.Hour // 大 backoff，不取消会真的睡很久
+	backoff := time.Hour // large backoff; without cancel it would really sleep a long time
 	go func() {
 		time.Sleep(20 * time.Millisecond)
 		cancel()
 	}()
 	start := time.Now()
 	if sleepWithBackoff(ctx, &backoff) {
-		t.Fatal("等待中取消仍返回 true")
+		t.Fatal("cancelled while waiting still returned true")
 	}
 	if time.Since(start) > time.Second {
-		t.Fatal("取消后未立即唤醒")
+		t.Fatal("not woken up promptly after cancel")
 	}
 	if backoff != time.Hour {
-		t.Fatalf("取消时 backoff 被改动: %v", backoff)
+		t.Fatalf("backoff was changed on cancel: %v", backoff)
 	}
 }

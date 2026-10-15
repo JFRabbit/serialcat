@@ -6,40 +6,40 @@ import (
 	"github.com/JFRabbit/serialcat/internal/agent"
 )
 
-// RandomToken：正常入参应返回 2n 长度的十六进制串。
+// RandomToken: a normal input should return a hex string of length 2n.
 func TestRandomTokenLength(t *testing.T) {
 	for _, n := range []int{1, 8, 16, 32} {
 		tok := agent.RandomToken(n)
 		if len(tok) != 2*n {
-			t.Errorf("RandomToken(%d) 长度 = %d, 期望 %d", n, len(tok), 2*n)
+			t.Errorf("RandomToken(%d) length = %d, want %d", n, len(tok), 2*n)
 		}
-		// 校验 hex 字符集
+		// Validate the hex charset
 		for _, c := range tok {
 			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
-				t.Errorf("RandomToken(%d) 含非 hex 字符 %q", n, c)
+				t.Errorf("RandomToken(%d) contains non-hex char %q", n, c)
 			}
 		}
 	}
 }
 
-// RandomToken：两次调用应产生不同令牌（随机性）。
+// RandomToken: two calls should produce different tokens (randomness).
 func TestRandomTokenUniqueness(t *testing.T) {
 	a := agent.RandomToken(16)
 	b := agent.RandomToken(16)
 	if a == b {
-		t.Errorf("两次调用返回相同令牌: %q", a)
+		t.Errorf("two calls returned the same token: %q", a)
 	}
 }
 
-// RandomToken：n=0 返回空串；n<0 时 make([]byte, n) 触发 panic。
+// RandomToken: n=0 returns an empty string; n<0 makes make([]byte, n) panic.
 func TestRandomTokenNonPositive(t *testing.T) {
 	if tok := agent.RandomToken(0); tok != "" {
-		t.Errorf("RandomToken(0) = %q, 期望空串", tok)
+		t.Errorf("RandomToken(0) = %q, want empty string", tok)
 	}
 
 	defer func() {
 		if r := recover(); r == nil {
-			t.Error("RandomToken(-1) 未 panic")
+			t.Error("RandomToken(-1) did not panic")
 		}
 	}()
 	agent.RandomToken(-1)

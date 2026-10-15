@@ -1,99 +1,101 @@
 ---
 name: serialcat-agent
 description: >-
-  通过 serialcat agent 的 HTTP 接口实时拉取串口日志(/api/stream)、回查历史
-  (/api/logs 分页+过滤+尾部快照)以及向串口设备下发命令(/api/write)。
-  当 AI 需要读取某台插着串口设备的 Windows 机器上的日志、持续监控串口输出、
-  或排查过去某段时间的串口数据时使用。
+  Pull serial logs in real time via the serialcat agent's HTTP interface
+  (/api/stream), query history (/api/logs with pagination + filtering + tail
+  snapshot), and send commands to serial devices (/api/write). Use when an AI
+  needs to read logs from a Windows machine with a serial device attached,
+  continuously monitor serial output, or investigate serial data from a past
+  time window.
 ---
 
-# SKILL — 让 AI 通过 serialcat agent 访问串口日志
+# SKILL — Let an AI Access Serial Logs via serialcat agent
 
-> 这份文档是给 **AI 协作者 / code agent** 看的"怎么用 serialcat agent"。
-> 面向使用/集成,不面向二次开发(架构看根 README.md)。
+> This document is for **AI collaborators / code agents** on "how to use serialcat agent".
+> It targets usage/integration, not secondary development (see the root README.md for architecture).
 
-## 1. 是什么
+## 1. What It Is
 
-`serialcat` 是一个轻量本地日志工具。其中 **agent 模式**跑在一台**插着串口设备的 Windows 机器**上,
-把串口数据通过网络暴露出来,让**另一端**(Mac / 另一台机器 / AI)通过 HTTP 拉取:
+`serialcat` is a lightweight local log tool. Its **agent mode** runs on a **Windows machine with a serial device attached**,
+exposing the serial data over the network so the **other end** (Mac / another machine / AI) can pull it over HTTP:
 
-- **实时看** → `/api/stream`(长连接流)
-- **回看历史** → `/api/logs`(读 agent 默认落盘的全量日志,分页/过滤/尾部快照)
-- **下发命令** → `/api/write`(需 agent 开了写开关)
+- **Watch in real time** → `/api/stream` (long-lived stream)
+- **Review history** → `/api/logs` (reads the agent's full persisted log, with pagination/filtering/tail snapshot)
+- **Send commands** → `/api/write` (requires the agent to have the write switch enabled)
 
-对 AI 的意义:一次接入这个 agent,**实时盯 + 事后回看**串口日志都是同一套 HTTP,结构规整、容易消费。
+Why it matters for an AI: with a single integration into this agent, both **real-time monitoring** and **post-hoc review** of serial logs use the same HTTP interface — well-structured and easy to consume.
 
-## 2. 前置:拿到 agent 的连接信息
+## 2. Prerequisite: Get the Agent's Connection Info
 
-在你调用之前,需要现场提供(或问用户)：
+Before calling, you need the following provided on-site (or ask the user):
 
-- 运行 agent 机器的 **IP + 端口**(默认 `:7100`,即 `http://<ip>:7100`)
-- 是否启用了**写开关 `--enable-write`** 以及**写令牌 `--token`**(写命令才需要)
+- The agent machine's **IP + port** (default `:7100`, i.e. `http://<ip>:7100`)
+- Whether the **write switch `--enable-write`** is enabled, and the **write token `--token`** (only needed for write commands)
 
-**重要边界**
-- agent 目前**仅 Windows 支持**(需真实串口);你所在的 mac/Linux 只能作为"消费端"拉取。
-- agent 会**自动选串口、端口被占自动 +1**;打印的本机可访问 IP 里挑可达的那个。
-- agent 默认把串口流**全量落盘**到本地 `logs/serialcat-serial-*.log`(逐行 flush、带毫秒时间戳)。
-  历史接口 `/api/logs` 就是读这份落盘,你**不用关心文件名**,接口会帮你定位。
+**Important boundaries**
+- The agent is **currently Windows-only** (needs a real serial port); your mac/Linux can only act as a **consumer** pulling from it.
+- The agent **auto-selects the serial port and auto-increments the port by +1 if occupied**; pick the reachable one from the locally accessible IPs it prints.
+- The agent persists the serial stream **in full to disk** by default at `logs/serialcat-serial-*.log` (flushed line by line, with millisecond timestamps).
+  The history interface `/api/logs` reads this persisted file; you **don't need to care about the filename** — the interface locates it for you.
 
-## 3. 探测与状态
+## 3. Probing and Status
 
 ```
-# 存活
+# liveness
 curl -s http://<ip>:7100/health            # → ok
 
-# 枚举串口(JSON 数组)
+# enumerate serial ports (JSON array)
 curl -s http://<ip>:7100/api/ports
 # → ["COM3","COM5"]
 
-# 探测某串口可用波特率(可选)
+# probe usable baud rates for a port (optional)
 curl -s "http://<ip>:7100/api/probe?port=COM5"
 ```
 
-## 4. 实时日志(get 最新,持续跟)
+## 4. Real-Time Logs (get the latest, keep following)
 
-`/api/stream` 是 **NDJSON 长连接流**:
+`/api/stream` is an **NDJSON long-lived stream**:
 
 ```
 curl -N "http://<ip>:7100/api/stream"
 ```
 
-- 每行一个 JSON 帧,`Content-Type: application/x-ndjson`,agent 边读边 flush。
-- 帧主要含 **时间戳 `ts`** + **原始文本 `text`**(可能还带 `src`/`meta` 等元信息)。
-- **网络中断时流会断开**:稳健的消费方应捕获断流后自动重连 `curl -N`,并容忍"断线期间的数据断层"。
+- One JSON frame per line, `Content-Type: application/x-ndjson`, flushed as the agent reads.
+- Each frame mainly contains a **timestamp `ts`** + **raw text `text`** (may also carry `src`/`meta` and other metadata).
+- **The stream drops when the network disconnects**: a robust consumer should re-run `curl -N` to auto-reconnect after a drop, and tolerate the "data gap during the disconnect".
 
-## 5. 历史日志(回看过去,分页 + 过滤)
+## 5. History Logs (review the past, paginated + filtered)
 
-`/api/logs` 读 agent 落盘的全量历史,以**分页 JSON**返回。两种取法:
+`/api/logs` reads the agent's full persisted history and returns it as **paginated JSON**. Two ways to fetch:
 
-### 5.1 尾部快照(只要最近 N 条)
+### 5.1 Tail snapshot (just the most recent N entries)
 
 ```
 curl -s "http://<ip>:7100/api/logs?tail=true&limit=100"
 ```
 
-`tail=true` 一次性返回最近的 `limit` 条(时间正序),不可与 `after/until` 同用。
+`tail=true` returns the most recent `limit` entries at once (in chronological order); cannot be combined with `after/until`.
 
-### 5.2 游标续读(从头/从某个时间点按页拉全)
+### 5.2 Cursor paging (pull everything from the start / from a point in time, page by page)
 
 ```
 curl -s "http://<ip>:7100/api/logs?after=2026-10-08%2011:41:21.365&limit=100"
 ```
 
-**响应结构**
+**Response shape**
 
 ```
 {
-  "count": 100,                 // 本批实际返回行数
-  "hasMore": true,              // false = 已读到末尾/until,全部拉完
-  "next": "2026-10-08 11:41:24.512",  // 仅 hasMore 时非空,下次填 after 用
+  "count": 100,                 // number of rows actually returned in this batch
+  "hasMore": true,              // false = reached the end/until, everything pulled
+  "next": "2026-10-08 11:41:24.512",  // only non-empty when hasMore; feed into after next time
   "rows": [
-    { "ts": "2026-10-08 11:41:21.365", "text": "<原始日志原文(可能含设备格式/ANSI)>" }
+    { "ts": "2026-10-08 11:41:21.365", "text": "<raw log line (may contain device formatting/ANSI)>" }
   ]
 }
 ```
 
-**完整拉取的循环语义**:客户端只要 `while (hasMore)` 就把 `next` 填进下一次 `after`,直到 `hasMore=false`。
+**Full-pull loop semantics**: the client just keeps filling `next` into the next `after` while `hasMore`, until `hasMore=false`.
 
 ```
 after=""
@@ -105,49 +107,49 @@ for {
 }
 ```
 
-**参数表**
+**Parameter table**
 
-| 参数 | 含义 | 默认 / 上限 |
+| Parameter | Meaning | Default / limit |
 |---|---|---|
-| `after` | 只返回 `ts > after` 的行(游标续读) | 无 = 从文件头 |
-| `until` | 只返回 `ts <= until` 的行 | 无 = 到文件尾 |
-| `limit` | 本批条数上限 | 1000 / 最多 10000 |
-| `filter` | 单层正则,只返回匹配行(去噪音) | 无 = 全量 |
-| `tail` | 设为 `true` 走尾部快照 | 默认 false |
+| `after` | Only rows with `ts > after` (cursor paging) | None = from the head of the file |
+| `until` | Only rows with `ts <= until` | None = to the tail of the file |
+| `limit` | Max rows in this batch | 1000 / up to 10000 |
+| `filter` | Single-layer regex; only matching rows returned (de-noise) | None = everything |
+| `tail` | Set to `true` for a tail snapshot | default false |
 
-- **时间戳格式**: `2006-01-02 15:04:05.000`(秒.毫秒)。`after/until` 与 `ts` 同格式。
-  因为 URL 里含**空格和冒号**,最好用 `url.Values` 编码或把空格写成 `%20`。
-- **正则**: Go 的 `regexp` 语法(与 `filter:grep` 节点一致)。例 `filter=fail|error`。
-- **错误**: 没开落盘/文件不存在 → `404`;`after>until`、`tail` 加了 `after`、`limit` 超上限、时间格式非法、正则编译失败 → `400`。
+- **Timestamp format**: `2006-01-02 15:04:05.000` (seconds.milliseconds). `after/until` use the same format as `ts`.
+  Because the URL contains **spaces and colons**, prefer `url.Values` encoding or write spaces as `%20`.
+- **Regex**: Go's `regexp` syntax (same as the `filter:grep` node). Example: `filter=fail|error`.
+- **Errors**: persistence disabled / file missing → `404`; `after>until`, `after` combined with `tail`, `limit` over the cap, invalid time format, or regex compile failure → `400`.
 
-## 6. 下发命令(往串口写数据)
+## 6. Sending Commands (write data to the serial port)
 
 ```
-# 需要 agent 用 --enable-write 启动;若设置了 --token 需带 Authorization
+# requires the agent to be started with --enable-write; if --token is set, include Authorization
 curl -s -X POST \
   -H "Authorization: Bearer <token>" \
-  "http://<ip>:7100/api/write?data=<urlencoded 命令>"
+  "http://<ip>:7100/api/write?data=<urlencoded command>"
 ```
 
-- 未开写开关 → `403`(先让 agent 加 `--enable-write` 重启)。
-- 设置了 token 但没带/带错 → `401`。
-- `data` 支持字面转义 `\r` `\n` `\t`(会被替换为真实控制字符),发送侧统一幂等处理。
-- 成功 → `{"ok":"sent"}`。
-- **单工注意**:串口是**单向流**,这里的写**不会返回设备回显**(`?data=...` 只管发)。
-  要看设备回复,走 `/api/stream` 或 `/api/logs`,两者是同一份数据。
+- Write switch not enabled → `403` (have the agent add `--enable-write` and restart first).
+- Token set but missing/wrong → `401`.
+- `data` supports literal escapes `\r` `\n` `\t` (replaced with the real control characters); the sending side handles idempotency uniformly.
+- Success → `{"ok":"sent"}`.
+- **Simplex note**: the serial port is a **one-way stream**; this write **does not return the device echo** (`?data=...` only sends).
+  To see the device's reply, use `/api/stream` or `/api/logs` — both read the same data.
 
-## 7. 给 AI 的分步工作流(推荐)
+## 7. Step-by-Step Workflow for AI (recommended)
 
-1. 先 `GET /health` 确认可达;不通就先要 IP/端口。
-2. 要**实时监控**→ `curl -N /api/stream`,逐行消费,断流自动重连。
-3. 要**排查过去一段时间**→ `/api/logs` + `after/until/filter` 分页拉,`while(hasMore)` 用 `next` 续读到完。
-4. 要**只关注报错**→ 加 `&filter=fail|error|assert` 先缩小量。
-5. 要**下发固件/调试命令**→ 确认 `--enable-write` 开了,拿 token,`POST /api/write`。
-6. 要把串口拉进 serialcat 自己的 DAG 处理 → 配置里用 `source:serial-remote` 节点(见 `docs/usage.md`)。
+1. First `GET /health` to confirm reachability; if unreachable, ask for the IP/port.
+2. For **real-time monitoring** → `curl -N /api/stream`, consume line by line, auto-reconnect on drops.
+3. For **investigating a past time window** → `/api/logs` + `after/until/filter` pagination, `while(hasMore)` with `next` until done.
+4. For **errors only** → add `&filter=fail|error|assert` first to shrink the volume.
+5. For **sending firmware/debug commands** → confirm `--enable-write` is on, get the token, `POST /api/write`.
+6. To pull serial logs into serialcat's own DAG processing → use the `source:serial-remote` node in the config (see `docs/usage.md`).
 
-## 8. 常见坑
+## 8. Common Pitfalls
 
-- **日志是原始透传的**:`text` 里可能带设备的 ANSI 转义 / 内部时间戳,接口不加工,别指望它干净。
-- **落盘从本次启动开始**:重启 agent 后 `/api/logs` 只读新文件,旧启动的历史不在此接口范围内。
-- **同毫秒多行**:游标 `next` 按 `ts > after` 严格续读,极端"同毫秒行数超 limit"可能漏一撮,当前数据量下基本遇不到。
-- **端口被自动 +1**:告诉你的端口可能已被占用偏移,以 agent 实际打印的为准。
+- **Logs are passed through raw**: `text` may contain the device's ANSI escapes / internal timestamps; the interface does not process them, so don't expect clean output.
+- **Persistence starts at the current startup**: after restarting the agent, `/api/logs` only reads the new file; history from previous runs is outside this interface's scope.
+- **Multiple lines in the same millisecond**: the cursor `next` resumes strictly by `ts > after`; in the extreme case where "lines in the same millisecond exceed limit", a few may be missed — practically unreachable at current data volumes.
+- **Port auto-incremented by +1**: the port you were told may have been offset by an occupied port; trust what the agent actually prints.
