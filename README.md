@@ -1,77 +1,120 @@
 # serialcat
 
-> 轻量本地流式日志处理工具，单二进制 CLI。面向固件串口等常见日志处理场景。
-> 这套 `README.md` 面向**开发人员**讲项目架构与功能；**使用方式**见 [docs/usage.md](docs/usage.md)。
+[![CI](https://github.com/JFRabbit/serialcat/actions/workflows/ci.yml/badge.svg)](https://github.com/JFRabbit/serialcat/actions)
+[![License](https://img.shields.io/github/license/JFRabbit/serialcat)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/JFRabbit/serialcat)](go.mod)
 
-## 功能概览
+> A lightweight, single-binary streaming log processing tool, built for day-to-day
+> serial (firmware) log workflows: watch a serial port live, filter log files locally,
+> push commands down the line, and self-update.
 
-- **实时看串口**：Windows 上 `agent` 采集串口流，跨平台 `serial-remote` 拉流打印；断线自动重连并标记断档。
-- **本地筛日志**：读文件 + grep 过滤 + 打印/落盘。
-- **向串口下发命令**：`send` 命令远程写（`/api/write`，有回显）或本地盲发。
-- **自更新**：`update` 从发布源（MinIO）拉取替换二进制。
+**Language:** [English](README.md) · [中文](README.zh-CN.md)
 
-## 快速开始
+**Docs:** [Usage](docs/usage.md) · [Architecture notes](docs/design.md) · [Roadmap](docs/roadmap.md) · [Known limitations](docs/limitation.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md)
+
+## Features
+
+- **Watch a serial port live**: run `agent` on the Windows machine that owns the port to capture the serial stream; pull and print it from anywhere with the cross-platform `serial-remote` source. Auto-reconnects on drop and marks gaps.
+- **Filter logs locally**: read a file, grep with a regular expression, and print to the console or write to a file.
+- **Send commands down the wire**: the `send` command writes to a remote agent (`/api/write`, with device echo) or blind-sends to a local port.
+- **Self-update**: `update` fetches the latest release from GitHub Releases and replaces the current binary in place.
+
+## Quick start
+
+Build the single binary and check the version:
 
 ```bash
 go build -o serialcat .
-./serialcat run -f examples/dev_grep.yaml   # 读文件筛日志
 ./serialcat version
 ```
 
-## 目录结构
+serialcat pipelines are described by a small YAML config. The simplest one, `file → console` (read a file and print it):
 
+```yaml
+graph:
+  - id: src
+    kind: source
+    type: file
+    path: log.txt
+
+  - id: out
+    kind: sink
+    type: console
+    from: [src]
 ```
-main.go            → cmd.Execute()
-cmd/               Cobra 薄层：run / verify / version / update / agent / send
-internal/          agent（串口代理）、app（run 装配）、logger、updater、constant
-pkg/               可复用库，勿删
-  ├─ dag/          DAG 引擎：goroutine + channel 流式，批量 []Item，扇出/背压/EOS
-  ├─ config/       Config 模型（唯一权威）+ 拓扑校验（环检测/种类方向）
-  ├─ nodes/        source/filter/process/sink 节点实现
-  └─ serial/       串口驱动抽象（Windows 真实现，其它平台报 unsupported）
-plugins/           用户插件（外部脚本）
-scripts/           临时部署脚本（非发布产物）
-docs/              usage（使用）、roadmap（演进）、limitation（已知限制）、design（历史蓝图）
-```
 
-## 架构要点
-
-- **Config（Go struct）为唯一权威**：YAML 与（未来的）WebUI 都只是映射到同一配置模型的入口。
-- **DAG 引擎**（`pkg/dag`）：传输单元为**批量 `[]Item`**。每边默认缓冲 128 批做背压；扇入（writer 计数）合并、扇出（广播复制）、EOS 归零传播。外部保持流式语义。
-- **节点协议**（`pkg/nodes`）：
-  - `source`：无入边，`Out() <-chan []Item` 发射。
-  - `filter`/`process`/`sink`：读入处理，可选输出（sink 无输出）。
-  - `process:script` 为**子进程通信壳**：stdlib NDJSON over stdin/stdout，工具只做壳、不背脚本运行环境。
-- **配置校验**（`pkg/config`）：结构级（id 唯一、type 齐全、source 无 from、非 source 必有 from）+ 语义级（kind 合法、sink 不能作上游）+ **环检测**（Kahn 拓扑），`verify` 与每次 `run` 前都会执行。
-- **串口驱动下沉**到 `pkg/serial`（规避 pkg import internal 的 Go 规则）：仅 Windows 有物理实现，其它平台返回 unsupported。
-- **日志隔离**：工具自身日志写运行目录 `logs/serialcat.log`；console 节点输出独立走 stdout。
-- **自更新**：版本经 `-ldflags -X github.com/JFRabbit/serialcat/cmd.Version=...` 注入，更新源前缀 `-X github.com/JFRabbit/serialcat/cmd.DefaultUpdateURL=...`；`update` 从 `{baseURL}/serialcat/version.json` 拉取最新清单并按平台替换二进制。
-
-## 关键命令
-
-| 命令 | 说明 |
-|---|---|
-| `serialcat run -f x.yaml` | 执行 DAG 配置流水 |
-| `serialcat verify -f x.yaml` | 校验配置拓扑 |
-| `serialcat version [--short]` | 打印版本 |
-| `serialcat update [--check]` | 检查/自更新 |
-| `serialcat agent serve ...` | Windows 串口代理 |
-| `serialcat agent probe [port]` | 枚举串口 / 探测波特率 |
-| `serialcat send ...` | 向串口下发命令 |
-
-## CI / 发版
-
-- `.gitlab-ci.yml`：Go 测试 → 多平台编译 → mc 上传产物（二进制 + `usage.md` + `version.json`）到 MinIO。
-- 发版命令示例（本地）：
+Validate it, then run it:
 
 ```bash
-go build -ldflags "-X github.com/JFRabbit/serialcat/cmd.Version=1.0.0 -X github.com/JFRabbit/serialcat/cmd.DefaultUpdateURL=http://ip/bucket" -o serialcat .
+./serialcat verify -f dag.yaml   # check the topology only, does not run
+./serialcat run -f dag.yaml      # execute the pipeline
+```
+
+For real-world examples (watching a remote serial port, filtering a big log, sending commands), see [docs/usage.md](docs/usage.md).
+
+## Directory structure
+
+```
+main.go              → cmd.Execute()
+cmd/                 Cobra thin layer: run / verify / version / update / agent / send
+internal/            agent (serial proxy), app (run assembly), logger, updater, constant
+pkg/                 Reusable engine libraries — do not delete
+  ├─ dag/            DAG engine: goroutine + channel streaming, batched []Item, fan-out/backpressure/EOS
+  ├─ config/         Config model (single source of truth) + topology validation (cycle detection)
+  ├─ nodes/          source / filter / process / sink node implementations
+  └─ serial/         Serial driver abstraction (real implementation on Windows, unsupported elsewhere)
+plugins/             User plugins (external scripts) — not published
+scripts/             Temporary ops/deploy scripts — not published
+docs/                usage / roadmap / limitation / design
+.github/workflows/   GitHub Actions CI (test → matrix build → release on tag)
+```
+
+## Architecture highlights
+
+- **Config (a Go struct) is the single source of truth.** YAML files and plugins are only entry points that map onto the same config model; there is no secondary config source.
+- **DAG engine** (`pkg/dag`): streaming built on goroutines and channels. The transport unit is a **batch of `[]Item`**; each edge buffers 128 batches by default for backpressure. Fan-in merges via writer counting, fan-out broadcasts by copy, and end-of-stream (EOS) propagates until zero writers remain. Streaming semantics are preserved at the engine boundary.
+- **Node protocol** (`pkg/nodes`):
+  - `source`: no incoming edges; emits via `Out() <-chan []Item`.
+  - `filter` / `process` / `sink`: consume and process input; output is optional (sinks have none).
+  - `process:script` is a **subprocess communication shell**: NDJSON over stdin/stdout. The tool is only a shell — it does not host the script's runtime.
+- **Config validation** (`pkg/config`): structural checks (unique ids, complete types, no `from` on sources, `from` required on non-sources) plus semantic checks (valid kinds, sinks cannot be upstream) plus **cycle detection** (Kahn topological sort). Both `verify` and every `run` execute it.
+- **Serial driver pushed down** to `pkg/serial` (keeps `pkg` from importing `internal`, per Go rules): only Windows has a physical implementation; other platforms report `unsupported`. `agent` and local writes therefore require Windows.
+- **Log isolation**: tool logs go to `logs/serialcat.log` under the run directory; console-node output goes to stdout independently — the two never mix.
+- **Self-update via GitHub Releases**: the version is injected with `-ldflags -X github.com/JFRabbit/serialcat/cmd.Version=x.y.z`, and the update source defaults to the repo via `-X github.com/JFRabbit/serialcat/cmd.DefaultUpdateURL=JFRabbit/serialcat`; `update` resolves the latest release and replaces the binary per platform (SHA-256 verified).
+
+## Key commands
+
+| Command | Description |
+|---|---|
+| `serialcat run -f x.yaml` | Execute a DAG pipeline from a config file |
+| `serialcat verify -f x.yaml` | Validate config topology without running |
+| `serialcat version [--short]` | Print version info (`--short` prints just the version number) |
+| `serialcat update [--check]` | Check for / install the latest version |
+| `serialcat agent serve ...` | Windows serial agent (HTTP `:7100`, auto-incrementing if busy; auto-selects the port) |
+| `serialcat agent probe [port]` | List local serial ports / probe baud rates |
+| `serialcat send ...` | Send a command to a serial port (remote via `--url`/`--token`, or local blind send via `--port`) |
+
+`serialcat -h` and `serialcat <command> -h` show full help for every command.
+
+## CI / Release
+
+Continuous integration runs on **GitHub Actions** (`.github/workflows/ci.yml`):
+
+1. `go test ./...` on every push / PR.
+2. A build matrix compiles `windows/amd64`, `linux/amd64`, `darwin/amd64` and `darwin/arm64`.
+3. Pushing a tag `v*` triggers a **GitHub Release** with the binaries uploaded as assets named `serialcat-{os}-{arch}` (`.exe` suffix on Windows), plus `docs/usage.md`.
+
+To build a release binary locally (injecting the version and update source via `ldflags`):
+
+```bash
+go build \
+  -ldflags "-X github.com/JFRabbit/serialcat/cmd.Version=1.0.0 \
+            -X github.com/JFRabbit/serialcat/cmd.DefaultUpdateURL=JFRabbit/serialcat" \
+  -o serialcat .
 ```
 
 ## License
 
-serialcat 以 **Apache License 2.0** 开源，见 [LICENSE](LICENSE)。版权归 **JFRabbit**（见 [NOTICE](NOTICE)）。
+serialcat is open-sourced under the **Apache License 2.0**; see [LICENSE](LICENSE). Copyright © **JFRabbit** (see [NOTICE](NOTICE)).
 
-使用的第三方依赖及各自许可证见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)。
-
-> 详细使用见 [docs/usage.md](docs/usage.md)；演进规划见 [docs/roadmap.md](docs/roadmap.md)；已知限制与性能基线见 [docs/limitation.md](docs/limitation.md)。
+Third-party dependencies and their licenses are listed in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
