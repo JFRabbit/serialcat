@@ -63,7 +63,7 @@ jobs:
             docs/usage.md
             README.md
           body: |
-            ## serialcat v${{ github.ref_name }}
+            ## serialcat ${{ github.ref_name }}
 
             Lightweight local streaming log tool for serial port debugging. Single binary, cross-platform (Windows / macOS / Linux).
 
@@ -85,5 +85,5 @@ jobs:
 
             ### Docs
 
-            - [README.md](https://github.com/JFRabbit/serialcat/blob/v${{ github.ref_name }}/README.md)
-            - [docs/usage.md](https://github.com/JFRabbit/serialcat/blob/v${{ github.ref_name }}/docs/usage.md)
+            - [README.md](https://github.com/JFRabbit/serialcat/blob/${{ github.ref_name }}/README.md)
+            - [docs/usage.md](https://github.com/JFRabbit/serialcat/blob/${{ github.ref_name }}/docs/usage.md)
