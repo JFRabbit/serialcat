@@ -12,7 +12,7 @@ import (
 	"github.com/JFRabbit/serialcat/internal/updater"
 )
 
-// fakeSource 实现 updater.Source, 通过函数字段控制各方法行为。
+// fakeSource implements updater.Source, with function fields controlling each method's behavior.
 type fakeSource struct {
 	checkLatest func(ctx context.Context) (*updater.VersionInfo, error)
 	download    func(ctx context.Context, url, dst string) error
@@ -26,9 +26,11 @@ func (f *fakeSource) Download(ctx context.Context, url, dst string) error {
 	return f.download(ctx, url, dst)
 }
 
-// updateTestEnv 注入 mock 更新源与可执行路径, 并重置包级状态; 返回还原函数。
-// 被测 runUpdate 依赖多个包级变量 (Version/updateSourceURL/insecure/newUpdaterSource/getExecutablePath),
-// 每次用例前后都要保存还原, 避免测试间状态泄漏。
+// updateTestEnv injects a mock update source and executable path, and resets
+// package-level state; it returns a restore function.
+// runUpdate under test depends on several package-level variables
+// (Version/updateSourceURL/insecure/newUpdaterSource/getExecutablePath), so they
+// are saved and restored around each test case to avoid state leaking between tests.
 func updateTestEnv(t *testing.T, src updater.Source, exePath string, exeErr error) (restore func()) {
 	t.Helper()
 
@@ -52,7 +54,7 @@ func updateTestEnv(t *testing.T, src updater.Source, exePath string, exeErr erro
 	}
 }
 
-// newVersionInfo 构造一个仅包含当前平台的 VersionInfo。
+// newVersionInfo builds a VersionInfo containing only the current platform.
 func newVersionInfo(latest, path, sha string) *updater.VersionInfo {
 	platform := runtime.GOOS + "_" + runtime.GOARCH
 	return &updater.VersionInfo{
@@ -62,36 +64,36 @@ func newVersionInfo(latest, path, sha string) *updater.VersionInfo {
 	}
 }
 
-// 覆盖分支: 版本信息未注入 (本地构建) 直接报错, 不访问更新源。
+// Covers the branch: un-injected version info (local build) errors out without touching the update source.
 func TestRunUpdateVersionNotInjected(t *testing.T) {
 	restore := updateTestEnv(t, &fakeSource{}, "", nil)
 	defer restore()
 	Version = "unset"
 
 	if err := runUpdate(false, false, false); err == nil {
-		t.Fatal("期望返回版本未注入错误, 实际为 nil")
+		t.Fatal("expected version-not-injected error, got nil")
 	}
 }
 
-// 覆盖分支: 未配置更新源地址 (无 flag / 环境变量 / 编译注入) 时报错。
+// Covers the branch: no update source URL configured (no flag / env / compile-time injection) errors out.
 func TestRunUpdateNoSourceURL(t *testing.T) {
 	restore := updateTestEnv(t, &fakeSource{}, "", nil)
 	defer restore()
 	Version = "1.0.0"
 	updateSourceURL = ""
-	t.Setenv("LOGDIAG_UPDATE_URL", "")
+	t.Setenv("SERIALCAT_UPDATE_URL", "")
 	oldDefault := DefaultUpdateURL
 	DefaultUpdateURL = "unset"
 	defer func() { DefaultUpdateURL = oldDefault }()
 
 	if err := runUpdate(false, false, false); err == nil {
-		t.Fatal("期望返回未配置更新源错误, 实际为 nil")
+		t.Fatal("expected missing-update-source error, got nil")
 	}
 }
 
-// 覆盖分支: CheckLatest 失败, 错误原样返回。
+// Covers the branch: CheckLatest fails, the error is returned as-is.
 func TestRunUpdateCheckLatestFailed(t *testing.T) {
-	wantErr := errors.New("拉取版本信息失败")
+	wantErr := errors.New("failed to fetch version info")
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
 			return nil, wantErr
@@ -107,7 +109,7 @@ func TestRunUpdateCheckLatestFailed(t *testing.T) {
 	}
 }
 
-// 覆盖分支: 版本比较失败 (更新源返回非法版本号) 时报错。
+// Covers the branch: version comparison fails (the update source returns an invalid version number).
 func TestRunUpdateCompareVersionFailed(t *testing.T) {
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
@@ -120,11 +122,11 @@ func TestRunUpdateCompareVersionFailed(t *testing.T) {
 	updateSourceURL = "http://127.0.0.1:9000/bucket"
 
 	if err := runUpdate(false, false, false); err == nil {
-		t.Fatal("期望返回版本比较错误, 实际为 nil")
+		t.Fatal("expected version-comparison error, got nil")
 	}
 }
 
-// 覆盖分支: 当前已是最新版本 (cmp <= 0 且非 force), 正常返回。
+// Covers the branch: already the latest version (cmp <= 0 and not force), returns normally.
 func TestRunUpdateAlreadyLatest(t *testing.T) {
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
@@ -141,8 +143,9 @@ func TestRunUpdateAlreadyLatest(t *testing.T) {
 	}
 }
 
-// 覆盖分支: force 模式下即使已是最新也继续走下载流程;
-// 下载成功后完成替换并返回 nil (临时文件应被清理)。
+// Covers the branch: force mode proceeds with the download flow even when already
+// latest; after a successful download the executable is replaced and nil is returned
+// (the temp file should be cleaned up).
 func TestRunUpdateForceDownloadSuccess(t *testing.T) {
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "serialcat")
@@ -157,7 +160,7 @@ func TestRunUpdateForceDownloadSuccess(t *testing.T) {
 		},
 		download: func(ctx context.Context, url, dst string) error {
 			if dst != exe+".new" {
-				t.Errorf("下载目标 = %q, want %q", dst, exe+".new")
+				t.Errorf("download target = %q, want %q", dst, exe+".new")
 			}
 			return os.WriteFile(dst, content, 0o644)
 		},
@@ -175,14 +178,14 @@ func TestRunUpdateForceDownloadSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(got) != string(content) {
-		t.Fatalf("替换后内容 = %q, want %q", got, content)
+		t.Fatalf("content after replacement = %q, want %q", got, content)
 	}
 	if _, err := os.Stat(exe + ".new"); !os.IsNotExist(err) {
-		t.Fatalf("临时文件未被清理, stat err = %v", err)
+		t.Fatalf("temp file was not cleaned up, stat err = %v", err)
 	}
 }
 
-// 覆盖分支: 发现新版本且 checkOnly=true, 打印提示后不下载直接返回 nil。
+// Covers the branch: a new version is found and checkOnly=true; prints a notice and returns nil without downloading.
 func TestRunUpdateCheckOnly(t *testing.T) {
 	downloadCalled := false
 	src := &fakeSource{
@@ -203,15 +206,15 @@ func TestRunUpdateCheckOnly(t *testing.T) {
 		t.Fatalf("err = %v, want nil", err)
 	}
 	if downloadCalled {
-		t.Fatal("check-only 模式下不应触发下载")
+		t.Fatal("download should not be triggered in check-only mode")
 	}
 }
 
-// 覆盖分支: 更新源未提供当前平台的下载地址时报错。
+// Covers the branch: the update source provides no download for the current platform.
 func TestRunUpdatePlatformMissing(t *testing.T) {
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
-			// Platforms 故意为空, 不含当前平台。
+			// Platforms is intentionally empty, without the current platform.
 			return &updater.VersionInfo{Latest: "2.0.0", Platforms: map[string]string{}}, nil
 		},
 	}
@@ -222,16 +225,16 @@ func TestRunUpdatePlatformMissing(t *testing.T) {
 
 	err := runUpdate(false, false, false)
 	if err == nil {
-		t.Fatal("期望返回平台缺失错误, 实际为 nil")
+		t.Fatal("expected platform-missing error, got nil")
 	}
 	if !strings.Contains(err.Error(), runtime.GOOS+"_"+runtime.GOARCH) {
-		t.Fatalf("错误信息应包含当前平台, 实际为: %v", err)
+		t.Fatalf("error should mention the current platform, got: %v", err)
 	}
 }
 
-// 覆盖分支: 获取可执行文件路径失败, 错误原样返回。
+// Covers the branch: getting the executable path fails, the error is returned as-is.
 func TestRunUpdateExePathFailed(t *testing.T) {
-	wantErr := errors.New("找不到可执行文件")
+	wantErr := errors.New("executable not found")
 	src := &fakeSource{
 		checkLatest: func(ctx context.Context) (*updater.VersionInfo, error) {
 			return newVersionInfo("2.0.0", "bin/serialcat", ""), nil
@@ -247,9 +250,9 @@ func TestRunUpdateExePathFailed(t *testing.T) {
 	}
 }
 
-// 覆盖分支: 下载失败, 错误原样返回, 且不替换可执行文件。
+// Covers the branch: download fails, the error is returned as-is and the executable is not replaced.
 func TestRunUpdateDownloadFailed(t *testing.T) {
-	wantErr := errors.New("下载超时")
+	wantErr := errors.New("download timeout")
 	exe := filepath.Join(t.TempDir(), "serialcat")
 	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
@@ -275,11 +278,11 @@ func TestRunUpdateDownloadFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(got) != "old" {
-		t.Fatalf("可执行文件内容被改动: %q", got)
+		t.Fatalf("executable content was modified: %q", got)
 	}
 }
 
-// 覆盖分支: 下载成功但 SHA256 校验失败时报错, 且不替换可执行文件。
+// Covers the branch: SHA256 verification fails after a successful download; errors and does not replace the executable.
 func TestRunUpdateSHA256Mismatch(t *testing.T) {
 	exe := filepath.Join(t.TempDir(), "serialcat")
 	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
@@ -299,20 +302,21 @@ func TestRunUpdateSHA256Mismatch(t *testing.T) {
 	updateSourceURL = "http://127.0.0.1:9000/bucket"
 
 	if err := runUpdate(false, false, false); err == nil {
-		t.Fatal("期望返回校验失败错误, 实际为 nil")
+		t.Fatal("expected verification-failure error, got nil")
 	}
 	got, err := os.ReadFile(exe)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(got) != "old" {
-		t.Fatalf("可执行文件内容被改动: %q", got)
+		t.Fatalf("executable content was modified: %q", got)
 	}
 }
 
-// 覆盖 withTLSCertFallback 分支: 更新源工厂创建失败, 错误原样返回且不执行回调。
+// Covers the withTLSCertFallback branch: update source factory creation fails; the
+// error is returned as-is and the callback is not executed.
 func TestRunUpdateSourceFactoryFailed(t *testing.T) {
-	wantErr := errors.New("不支持的更新源类型")
+	wantErr := errors.New("unsupported update source type")
 	oldFactory := newUpdaterSource
 	defer func() { newUpdaterSource = oldFactory }()
 	newUpdaterSource = func(baseURL string, insecure bool) (updater.Source, error) {
@@ -328,34 +332,54 @@ func TestRunUpdateSourceFactoryFailed(t *testing.T) {
 		t.Fatalf("err = %v, want %v", err, wantErr)
 	}
 	if called {
-		t.Fatal("工厂创建失败时不应执行回调")
+		t.Fatal("callback should not run when factory creation fails")
 	}
 }
 
-// 覆盖 resolveUpdateURL 优先级: flag > 环境变量 > 编译注入。
+// Covers resolveUpdateURL priority: flag > env var > compile-time injection.
 func TestResolveUpdateURLPriority(t *testing.T) {
 	oldFlag, oldDefault := updateSourceURL, DefaultUpdateURL
 	defer func() { updateSourceURL, DefaultUpdateURL = oldFlag, oldDefault }()
 
 	updateSourceURL = "http://flag"
-	t.Setenv("LOGDIAG_UPDATE_URL", "http://env")
+	t.Setenv("SERIALCAT_UPDATE_URL", "http://env")
 	DefaultUpdateURL = "http://ldflags"
 	if got := resolveUpdateURL(); got != "http://flag" {
-		t.Fatalf("flag 优先: got %q", got)
+		t.Fatalf("flag should win: got %q", got)
 	}
 
 	updateSourceURL = ""
 	if got := resolveUpdateURL(); got != "http://env" {
-		t.Fatalf("环境变量次之: got %q", got)
+		t.Fatalf("env var should be next: got %q", got)
 	}
 
-	t.Setenv("LOGDIAG_UPDATE_URL", "")
+	t.Setenv("SERIALCAT_UPDATE_URL", "")
 	if got := resolveUpdateURL(); got != "http://ldflags" {
-		t.Fatalf("ldflags 注入未生效: got %q", got)
+		t.Fatalf("ldflags injection not applied: got %q", got)
 	}
 
 	DefaultUpdateURL = "unset"
 	if got := resolveUpdateURL(); got != "" {
-		t.Fatalf("未配置应返回空串: got %q", got)
+		t.Fatalf("empty string expected when unconfigured: got %q", got)
+	}
+}
+
+// Covers the newUpdaterSource factory type detection: a value containing "://" is a
+// MinIO HTTP source, any other value is a GitHub repository (owner/repo).
+func TestNewUpdaterSourceTypeDetection(t *testing.T) {
+	minioSrc, err := newUpdaterSource("http://127.0.0.1:9000/bucket", false)
+	if err != nil {
+		t.Fatalf("minio factory: unexpected error: %v", err)
+	}
+	if _, ok := minioSrc.(*updater.MinioSource); !ok {
+		t.Fatalf("minio factory returned %T, want *updater.MinioSource", minioSrc)
+	}
+
+	ghSrc, err := newUpdaterSource("JFRabbit/serialcat", false)
+	if err != nil {
+		t.Fatalf("github factory: unexpected error: %v", err)
+	}
+	if _, ok := ghSrc.(*updater.GitHubSource); !ok {
+		t.Fatalf("github factory returned %T, want *updater.GitHubSource", ghSrc)
 	}
 }

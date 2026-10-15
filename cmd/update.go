@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/JFRabbit/serialcat/internal/constant"
 	"github.com/JFRabbit/serialcat/internal/logger"
@@ -14,31 +15,36 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// 更新源地址优先级: --source-url > 环境变量 LOGDIAG_UPDATE_URL > 编译时注入 DefaultUpdateURL
+// Update source URL priority: --source-url > env SERIALCAT_UPDATE_URL > compile-time injected DefaultUpdateURL
 var (
 	updateSourceURL string
-	// DefaultUpdateURL 由 ldflags 注入更新源地址前缀; "unset" 表示未注入。
+	// DefaultUpdateURL is the update source URL prefix injected via ldflags; "unset" means not injected.
 	DefaultUpdateURL = "unset"
 )
 
-// updaterSourceFactory 创建更新源, 便于测试注入 mock。
+// updaterSourceFactory creates an update source, injectable by tests with a mock.
 type updaterSourceFactory func(baseURL string, insecure bool) (updater.Source, error)
 
-// newUpdaterSource 默认更新源工厂 (MinIO HTTP)。
+// newUpdaterSource is the default update source factory. A value containing "://"
+// is treated as a MinIO HTTP source (http(s)://ip:port/bucket); any other value is
+// treated as a GitHub repository in the form owner/repo (e.g. "JFRabbit/serialcat").
 var newUpdaterSource updaterSourceFactory = func(baseURL string, insecure bool) (updater.Source, error) {
-	return updater.NewSource("minio", baseURL, constant.AppName, insecure)
+	if strings.Contains(baseURL, "://") {
+		return updater.NewSource("minio", baseURL, constant.AppName, insecure)
+	}
+	return updater.NewSource("github", baseURL, "", insecure)
 }
 
-// getExecutablePath 返回当前可执行文件路径, 便于测试注入。
+// getExecutablePath returns the current executable path, injectable by tests.
 var getExecutablePath = selfPath
 
-// insecure 跳过 TLS 证书校验（自签名证书更新源场景）。仅 update 命令使用的局部 flag。
+// insecure skips TLS certificate verification (for self-signed update sources). Local flag used only by the update command.
 var insecure bool
 
 var updateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "检查并更新到最新版本",
-	Long:  "从更新源检测最新版本, 下载并替换当前可执行文件。",
+	Short: "Check and update to the latest version",
+	Long:  "Check the latest version from the update source, download it, and replace the current executable.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		checkOnly, err := cmd.Flags().GetBool("check")
 		if err != nil {
@@ -54,27 +60,27 @@ var updateCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(updateCmd)
-	updateCmd.Flags().StringVar(&updateSourceURL, "source-url", "", "更新源地址前缀 (http(s)://ip:port/bucket)")
-	updateCmd.Flags().Bool("check", false, "仅检查是否有新版本, 不执行更新")
-	updateCmd.Flags().Bool("force", false, "强制更新, 即使当前已是最新版本")
-	updateCmd.Flags().BoolVar(&insecure, "insecure", false, "跳过 TLS 证书校验（自签名更新源）")
+	updateCmd.Flags().StringVar(&updateSourceURL, "source-url", "", "GitHub repository (owner/repo) or update source URL")
+	updateCmd.Flags().Bool("check", false, "only check for a new version without updating")
+	updateCmd.Flags().Bool("force", false, "force update even if already the latest version")
+	updateCmd.Flags().BoolVar(&insecure, "insecure", false, "skip TLS certificate verification (self-signed update source)")
 }
 
 func runUpdate(checkOnly, force, insecure bool) error {
 	if Version == "" || Version == "unset" {
-		return fmt.Errorf("当前版本信息未注入（本地构建）, 不支持自动更新")
+		return fmt.Errorf("version info not injected (local build), automatic update is not supported")
 	}
 
 	baseURL := resolveUpdateURL()
 	if baseURL == "" {
-		return fmt.Errorf("未配置更新源地址, 请使用 --source-url 或环境变量 LOGDIAG_UPDATE_URL")
+		return fmt.Errorf("update source URL not configured, use --source-url or the SERIALCAT_UPDATE_URL environment variable")
 	}
 	if !insecure {
-		insecure = os.Getenv("LOGDIAG_UPDATE_INSECURE") == "1" || os.Getenv("LOGDIAG_UPDATE_INSECURE") == "true"
+		insecure = os.Getenv("SERIALCAT_UPDATE_INSECURE") == "1" || os.Getenv("SERIALCAT_UPDATE_INSECURE") == "true"
 	}
 
 	ctx := context.Background()
-	logger.Info("正在检查最新版本: %s", baseURL)
+	logger.Info("checking latest version: %s", baseURL)
 	var info *updater.VersionInfo
 	err := withTLSCertFallback(ctx, insecure, baseURL, func(src updater.Source, c context.Context) error {
 		var e error
@@ -85,26 +91,26 @@ func runUpdate(checkOnly, force, insecure bool) error {
 		return err
 	}
 
-	logger.Info("当前版本: %s, 最新版本: %s", Version, info.Latest)
+	logger.Info("current version: %s, latest version: %s", Version, info.Latest)
 	cmp, err := updater.CompareVersions(info.Latest, Version)
 	if err != nil {
 		return err
 	}
 	if cmp <= 0 && !force {
-		logger.Info("当前已是最新版本")
-		fmt.Println("当前已是最新版本")
+		logger.Info("already the latest version")
+		fmt.Println("already the latest version")
 		return nil
 	}
 	if checkOnly {
-		logger.Info("发现新版本: %s (使用 serialcat update 进行更新)", info.Latest)
-		fmt.Printf("发现新版本: %s\n", info.Latest)
+		logger.Info("new version found: %s (run serialcat update to install)", info.Latest)
+		fmt.Printf("new version found: %s\n", info.Latest)
 		return nil
 	}
 
 	platform := runtime.GOOS + "_" + runtime.GOARCH
 	path, ok := info.Platforms[platform]
 	if !ok {
-		return fmt.Errorf("更新源未提供当前平台 (%s) 的下载地址", platform)
+		return fmt.Errorf("update source provides no download for the current platform (%s)", platform)
 	}
 	downloadURL := updater.ResolveURL(baseURL, path)
 
@@ -112,11 +118,12 @@ func runUpdate(checkOnly, force, insecure bool) error {
 	if err != nil {
 		return err
 	}
-	// 临时文件与可执行文件同目录, 保证同一分区, 避免跨分区重命名失败。
+	// Keep the temp file in the same directory as the executable so they share a
+	// volume, avoiding cross-volume rename failures.
 	tmpFile := exePath + ".new"
 	defer func() { _ = os.Remove(tmpFile) }()
 
-	logger.Info("正在下载新版本: %s", downloadURL)
+	logger.Info("downloading new version: %s", downloadURL)
 	if err := withTLSCertFallback(ctx, insecure, baseURL, func(src updater.Source, c context.Context) error {
 		return src.Download(c, downloadURL, tmpFile)
 	}); err != nil {
@@ -124,28 +131,29 @@ func runUpdate(checkOnly, force, insecure bool) error {
 	}
 
 	if expected, ok := info.SHA256[platform]; ok && expected != "" {
-		logger.Info("正在校验文件完整性")
+		logger.Info("verifying file integrity")
 		if err := updater.VerifySHA256(tmpFile, expected); err != nil {
 			return err
 		}
 	}
 
-	logger.Info("正在替换可执行文件: %s", exePath)
+	logger.Info("replacing executable: %s", exePath)
 	if err := updater.ReplaceExecutable(exePath, tmpFile); err != nil {
-		return fmt.Errorf("替换可执行文件失败: %w", err)
+		return fmt.Errorf("failed to replace executable: %w", err)
 	}
 
 	if runtime.GOOS == "windows" {
-		logger.Info("更新已调度, 进程退出后将自动完成替换")
-		fmt.Println("更新已调度, 进程退出后将自动完成替换")
+		logger.Info("update scheduled; replacement will finish after the process exits")
+		fmt.Println("update scheduled; replacement will finish after the process exits")
 	} else {
-		logger.Info("更新完成, 当前版本: %s, 请重新运行 serialcat", info.Latest)
-		fmt.Printf("更新完成, 当前版本: %s\n", info.Latest)
+		logger.Info("update complete, current version: %s, please rerun serialcat", info.Latest)
+		fmt.Printf("update complete, current version: %s\n", info.Latest)
 	}
 	return nil
 }
 
-// withTLSCertFallback 执行更新源操作, 证书校验失败时自动降级为跳过校验重试一次。
+// withTLSCertFallback runs the update source operation, retrying once with
+// verification skipped when certificate verification fails.
 func withTLSCertFallback(ctx context.Context, insecure bool, baseURL string, fn func(updater.Source, context.Context) error) error {
 	source, err := newUpdaterSource(baseURL, insecure)
 	if err != nil {
@@ -155,7 +163,7 @@ func withTLSCertFallback(ctx context.Context, insecure bool, baseURL string, fn 
 	if fnErr == nil || insecure || !updater.IsTLSCertError(fnErr) {
 		return fnErr
 	}
-	logger.Warn("更新源证书校验失败, 已自动跳过证书校验重试 (自签名证书场景); 如需屏蔽此提示, 请使用 --insecure 参数")
+	logger.Warn("update source certificate verification failed; retried with verification skipped (self-signed certificate scenario); use --insecure to suppress this message")
 	source, err = newUpdaterSource(baseURL, true)
 	if err != nil {
 		return err
@@ -163,12 +171,12 @@ func withTLSCertFallback(ctx context.Context, insecure bool, baseURL string, fn 
 	return fn(source, ctx)
 }
 
-// resolveUpdateURL 按优先级解析更新源地址。
+// resolveUpdateURL resolves the update source URL by priority.
 func resolveUpdateURL() string {
 	if updateSourceURL != "" {
 		return updateSourceURL
 	}
-	if env := os.Getenv("LOGDIAG_UPDATE_URL"); env != "" {
+	if env := os.Getenv("SERIALCAT_UPDATE_URL"); env != "" {
 		return env
 	}
 	if DefaultUpdateURL != "unset" {
@@ -177,15 +185,15 @@ func resolveUpdateURL() string {
 	return ""
 }
 
-// selfPath 返回当前可执行文件的真实路径（解析符号链接）。
+// selfPath returns the real path of the current executable (resolving symlinks).
 func selfPath() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("获取可执行文件路径失败: %w", err)
+		return "", fmt.Errorf("failed to get executable path: %w", err)
 	}
 	resolved, err := filepath.EvalSymlinks(exe)
 	if err != nil {
-		return "", fmt.Errorf("解析可执行文件路径失败: %w", err)
+		return "", fmt.Errorf("failed to resolve executable path: %w", err)
 	}
 	return resolved, nil
 }
