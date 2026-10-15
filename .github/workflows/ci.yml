@@ -22,9 +22,8 @@ jobs:
       - name: build
         run: go build ./...
 
-  release:
+  build:
     needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,16 +40,22 @@ jobs:
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
         run: |
           asset="serialcat-${{ matrix.os }}-${{ matrix.arch }}"
           if [ "${{ matrix.os }}" = "windows" ]; then
             asset="${asset}.exe"
           fi
+          ver="${VERSION}"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            ver="${ver#v}"
+          fi
           go build -trimpath \
-            -ldflags "-X github.com/JFRabbit/serialcat/cmd.Version=${GITHUB_REF_NAME#v} -X github.com/JFRabbit/serialcat/cmd.DefaultUpdateURL=${{ github.repository }}" \
+            -ldflags "-X github.com/JFRabbit/serialcat/cmd.Version=${ver} -X github.com/JFRabbit/serialcat/cmd.DefaultUpdateURL=${{ github.repository }}" \
             -o "dist/${asset}" .
           shasum -a 256 "dist/${asset}" | tee "dist/${asset}.sha256"
       - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
