@@ -62,3 +62,28 @@ jobs:
             dist/*
             docs/usage.md
             README.md
+          body: |
+            ## serialcat v${{ github.ref_name }}
+
+            Lightweight local streaming log tool for serial port debugging. Single binary, cross-platform (Windows / macOS / Linux).
+
+            ### Features
+
+            - **Watch serial logs in real time**: run `serialcat agent serve` on the Windows machine that owns the serial device; pull the stream cross-platform with `source:serial-remote` (auto-reconnect with gap markers on disconnects).
+            - **Filter logs locally**: read a file or a stream and regex-filter with `filter:grep`, then print to console or persist to disk.
+            - **Send commands to the device**: `serialcat send` writes to the remote agent over HTTP (`/api/write`, with echo) or blind-sends directly to a local serial port.
+            - **Read history**: the agent exposes `GET /api/logs` with paging, regex filtering, and tail snapshot of the persisted log.
+            - **Self-update**: `serialcat update` checks the latest GitHub Release, verifies the SHA256 checksum, and replaces the current binary.
+
+            ### Install
+
+            Download the binary matching your platform from the assets below (`serialcat-{os}-{arch}`, Windows uses `.exe`), or build from source:
+
+            ```bash
+            go build -o serialcat .
+            ```
+
+            ### Docs
+
+            - [README.md](https://github.com/JFRabbit/serialcat/blob/v${{ github.ref_name }}/README.md)
+            - [docs/usage.md](https://github.com/JFRabbit/serialcat/blob/v${{ github.ref_name }}/docs/usage.md)
