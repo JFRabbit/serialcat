@@ -68,4 +68,10 @@ docs/              usage（使用）、roadmap（演进）、limitation（已知
 go build -ldflags "-X logdiag/cmd.Version=1.0.0 -X logdiag/cmd.DefaultUpdateURL=http://ip/bucket" -o logdiag .
 ```
 
+## License
+
+logdiag 以 **Apache License 2.0** 开源，见 [LICENSE](LICENSE)。版权归 **JFRabbit**（见 [NOTICE](NOTICE)）。
+
+使用的第三方依赖及各自许可证见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)。
+
 > 详细使用见 [docs/usage.md](docs/usage.md)；演进规划见 [docs/roadmap.md](docs/roadmap.md)；已知限制与性能基线见 [docs/limitation.md](docs/limitation.md)。

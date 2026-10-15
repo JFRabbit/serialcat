@@ -1,0 +1,74 @@
+THIRD-PARTY SOFTWARE NOTICES AND INFORMATION
+
+The logdiag project ("logdiag") uses third-party software components.
+Each is listed below with its package (module + version), its license, and its
+copyright holder(s).  Where required by the applicable license, the full
+license text is available at the referenced URL or within the corresponding
+source distribution; the notices below are informational and do not modify
+the terms of any third-party license.
+
+This project is distributed under the Apache License 2.0; see the top-level
+LICENSE file.  The notices of dependencies licensed under MIT / BSD are
+retained here as their licenses require.
+
+Component: Cobra
+  Module: github.com/spf13/cobra v1.10.2
+  License: Apache License 2.0
+  Copyright: Steve Francia / spf13
+  https://github.com/spf13/cobra
+
+Component: pflag
+  Module: github.com/spf13/pflag v1.0.9
+  License: BSD-3-Clause
+  Copyright: Copyright (c) 2013 Alex Ogier. All rights reserved.
+             Copyright (c) 2012 The Go Authors. All rights reserved.
+  https://github.com/spf13/pflag
+
+Component: mousetrap
+  Module: github.com/inconshreveable/mousetrap v1.1.0
+  License: Apache License 2.0
+  Copyright: inconshreveable
+  https://github.com/inconshreveable/mousetrap
+
+Component: go.serial (go.bug.st/serial)
+  Module: go.bug.st/serial v1.8.0
+  License: MIT
+  Copyright: Copyright (c) go-bug contributors
+  https://github.com/go-bug/serial
+
+Component: zap
+  Module: go.uber.org/zap v1.28.0
+  License: MIT
+  Copyright: Copyright (c) 2016-2023 Uber Technologies, Inc.
+  https://github.com/uber-go/zap
+
+Component: multierr
+  Module: go.uber.org/multierr v1.10.0
+  License: MIT
+  Copyright: Copyright (c) 2017-2023 Uber Technologies, Inc.
+  https://github.com/uber-go/multierr
+
+Component: golang.org/x/sys
+  Module: golang.org/x/sys v0.43.0
+  License: BSD-3-Clause
+  Copyright: Copyright (c) 2009 The Go Authors. All rights reserved.
+  https://go.googlesource.com/sys
+
+Component: gopkg.in/yaml.v3
+  Module: gopkg.in/yaml.v3 v3.0.1
+  License: MIT
+  Copyright: Copyright (c) 2011-2014 Canonical Ltd.
+             Copyright (c) 2011-2018 gopkg.in maintainers
+  https://github.com/go-yaml/yaml
+
+----
+Note: Only modules with a compiled checksum (a "h1:" hash for the module zip,
+i.e. modules that get linked into the binary) are listed. Modules present in
+go.sum only via a "/go.mod" hash (module-graph resolution only, e.g. cobra's
+go-md2man/blackfriday doc tooling and yaml.v3's transitive aliases) are not
+part of the distributed binary and are omitted.
+
+Package names, versions and exact copyright/NOTICE text were transcribed
+from each dependency's LICENSE / NOTICE at the time this file was written.
+When upgrading or before a formal open-source release, re-verify each entry
+against the actual LICENSE file pulled by the Go module cache.

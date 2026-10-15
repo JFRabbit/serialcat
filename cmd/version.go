@@ -21,6 +21,7 @@ var versionCmd = &cobra.Command{
 			return
 		}
 		fmt.Printf("%s version %s (commit %s, built %s)\n", constant.AppName, Version, Commit, BuildTime)
+		fmt.Println(copyrightNote)
 	},
 }
 

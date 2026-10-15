@@ -18,6 +18,9 @@ var (
 	BuildTime = "unset"
 )
 
+// copyrightNote 是版权 / 许可声明，用于 --version 与 --help 的尾部。
+const copyrightNote = "Copyright 2026 JFRabbit. 依 Apache-2.0 开源,详见 LICENSE 与 THIRD_PARTY_NOTICES."
+
 // debug 是全局调试 flag，包级变量便于测试 save/restore。
 var debug bool
 
@@ -55,4 +58,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&debug, constant.FlagDebug, false, "启用调试日志")
 	rootCmd.SilenceUsage = true  // 失败不打印 usage
 	rootCmd.SilenceErrors = true // 错误只输出一次
+
+	// --version：在默认"name version <ver>"后再打印版权 / 许可声明。
+	rootCmd.SetVersionTemplate("{{with .Name}}{{printf \"%s \" .}}{{end}}{{printf \"version %s\\n\" .Version}}" + copyrightNote + "\n")
+	// --help：保留默认 help 结构，仅在文末追加一行版权 / 许可声明。
+	rootCmd.SetHelpTemplate("{{with (or .Long .Short)}}{{. | trimTrailingWhitespaces}}\n{{end}}{{if or .Runnable .HasSubCommands}}{{.UsageString}}{{end}}\n" + copyrightNote + "\n")
 }
